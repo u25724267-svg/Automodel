@@ -61,6 +61,27 @@ class TestWandbConfig:
         assert captured["mode"] == "online"
         assert captured["dir"] == "/tmp/w"
 
+    def test_build_does_not_deepcopy_config_values(self, monkeypatch):
+        class OrigValueLike(str):
+            def __new__(cls, value, orig_value):
+                instance = super().__new__(cls, value)
+                instance.orig_value = orig_value
+                return instance
+
+        captured = {}
+        fake_wandb = types.ModuleType("wandb")
+        fake_wandb.init = lambda **kw: captured.update(kw) or "run"
+        fake_wandb.Settings = lambda **kw: None
+        monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
+
+        project = OrigValueLike("team-project", "${WANDB_PROJECT}")
+        directory = OrigValueLike("/tmp/wandb", "${WANDB_DIR}")
+        cfg = WandbConfig.from_kwargs(project=project, dir=directory)
+
+        assert cfg.build() == "run"
+        assert captured["project"] is project
+        assert captured["dir"] is directory
+
 
 class TestMLflowConfig:
     def test_defaults(self):

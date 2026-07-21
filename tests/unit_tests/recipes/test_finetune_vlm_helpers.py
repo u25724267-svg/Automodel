@@ -799,6 +799,42 @@ def test_autoprocessor_with_processor_kwargs(caplog):
 
 
 # -----------------------------------------------------------------------------
+# DataLoader argument tests for build_dataloader
+# -----------------------------------------------------------------------------
+
+
+def test_build_dataloader_routes_shuffle_to_distributed_sampler():
+    """Shuffle config is consumed by the sampler and not forwarded to the DataLoader."""
+    from nemo_automodel.recipes.vlm.finetune import build_dataloader
+
+    dataset = [{"messages": []}]
+    captured_loader_kwargs = {}
+
+    def dataset_factory():
+        return dataset
+
+    def dataloader_factory(**kwargs):
+        captured_loader_kwargs.update(kwargs)
+        return kwargs
+
+    cfg_ds = ConfigNode({"_target_": dataset_factory})
+    cfg_dl = ConfigNode({"_target_": dataloader_factory, "shuffle": True})
+    processor = MagicMock()
+    sampler = MagicMock()
+
+    with (
+        patch("transformers.AutoProcessor.from_pretrained", return_value=processor),
+        patch("torch.utils.data.distributed.DistributedSampler", return_value=sampler) as mock_sampler,
+        patch("nemo_automodel.components.datasets.vlm.collate_fns.COLLATE_FNS", {"default": MagicMock()}),
+    ):
+        build_dataloader(cfg_ds, cfg_dl, "model", None, None, 42, 1)
+
+    mock_sampler.assert_called_once_with(dataset, shuffle=True)
+    assert captured_loader_kwargs["sampler"] is sampler
+    assert "shuffle" not in captured_loader_kwargs
+
+
+# -----------------------------------------------------------------------------
 # chat_template override tests for build_dataloader
 # -----------------------------------------------------------------------------
 

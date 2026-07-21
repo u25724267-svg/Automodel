@@ -271,8 +271,12 @@ def build_dataloader(
     Returns:
         The instantiated DataLoader and processor.
     """
+    shuffle = cfg_dl.get("shuffle", True)
+    if "shuffle" in cfg_dl:
+        del cfg_dl.shuffle
+
     dist_sampler_kwargs = {
-        "shuffle": cfg_dl.get("shuffle", True),
+        "shuffle": shuffle,
     }
     if device_mesh is not None:
         from nemo_automodel.components.distributed.mesh_utils import get_flat_mesh
