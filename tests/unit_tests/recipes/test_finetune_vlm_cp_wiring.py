@@ -30,6 +30,7 @@ full recipe — exercising the code shape that gets shipped:
 from __future__ import annotations
 
 from contextlib import nullcontext
+import math
 from types import SimpleNamespace
 
 import pytest
@@ -646,6 +647,7 @@ def test_run_validation_epoch_does_not_sum_tokens_over_cp(monkeypatch):
     assert tokens_call[1] is False, "total_tokens must NOT be summed over CP ranks"
     # val_loss = (2.0 * 3 tokens) / 3 tokens == 2.0
     assert result.metrics["val_loss"] == pytest.approx(2.0)
+    assert result.metrics["val_perplexity"] == pytest.approx(math.exp(2.0))
 
 
 def test_run_validation_epoch_cp_active_runs_pre_embed(monkeypatch):

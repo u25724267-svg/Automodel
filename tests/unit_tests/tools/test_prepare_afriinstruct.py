@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from tools.prepare_afriinstruct import _PreparationConfig, _prepare_dataset
+from tools.benchmark_contamination import BenchmarkBlocklist
 
 
 def _config(output_dir: Path, **overrides) -> _PreparationConfig:
@@ -145,3 +146,23 @@ def test_prepare_dataset_rejects_nonempty_output_directory(tmp_path: Path) -> No
         _prepare_dataset(_config(output_dir), _records(1))
 
     assert (output_dir / "keep.txt").read_text(encoding="utf-8") == "user data"
+
+
+def test_prepare_dataset_excludes_benchmark_contamination(tmp_path: Path) -> None:
+    blocklist_path = tmp_path / "benchmarks.sqlite3"
+    with BenchmarkBlocklist(blocklist_path) as blocklist:
+        blocklist.add_text("Instruction 3", benchmark="irokobench:hau:test", field="question")
+
+    summary = _prepare_dataset(
+        _config(tmp_path / "prepared", benchmark_blocklist=blocklist_path),
+        _records(10),
+    )
+
+    assert summary["stats"]["contaminated_records"] == 1
+    assert summary["stats"]["by_contamination_source"] == {"irokobench:hau:test": 1}
+    written = [
+        line
+        for path in (tmp_path / "prepared").glob("processed/*/*.jsonl")
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert all("Instruction 3" not in line for line in written)

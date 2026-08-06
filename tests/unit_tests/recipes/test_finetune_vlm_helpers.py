@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from contextlib import nullcontext
+import math
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -39,6 +40,7 @@ from nemo_automodel.recipes._typed_config import (
 from nemo_automodel.recipes.vlm.finetune import (
     FinetuneRecipeForVLM,
     _get_model_name,
+    _loss_to_perplexity,
     build_model,
 )
 
@@ -84,6 +86,12 @@ def test_get_model_name_prefers_pretrained_path():
     assert _get_model_name(cfg) == "nested/model"
 
     assert _get_model_name(_Cfg()) is None
+
+
+def test_loss_to_perplexity_uses_natural_exponential_and_bounds_large_loss():
+    assert _loss_to_perplexity(0.0) == pytest.approx(1.0)
+    assert _loss_to_perplexity(2.0) == pytest.approx(math.exp(2.0))
+    assert _loss_to_perplexity(1_000.0) == pytest.approx(math.exp(20.0))
 
 
 def _count_trainable(parameters):
@@ -576,6 +584,7 @@ def test_run_train_step_pp_zero_label_tokens_no_nan(monkeypatch):
     loss = metrics.metrics["loss"]
     assert loss == loss, f"reporting loss must not be NaN, got {loss}"
     assert loss == 0.0, f"reporting loss must be 0.0 when num_label_tokens=0, got {loss}"
+    assert metrics.metrics["perplexity"] == pytest.approx(1.0)
 
 
 @pytest.mark.cuda(False)
@@ -593,6 +602,7 @@ def test_run_train_step_pp_nonzero_label_tokens_divides(monkeypatch):
 
     assert metrics.metrics["num_label_tokens"] == 4
     assert metrics.metrics["loss"] == pytest.approx(8.0 / 4)
+    assert metrics.metrics["perplexity"] == pytest.approx(math.exp(2.0))
 
 
 # -----------------------------------------------------------------------------

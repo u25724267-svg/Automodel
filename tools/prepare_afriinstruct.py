@@ -34,6 +34,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
 
+if __package__:
+    from tools.benchmark_contamination import BenchmarkBlocklist
+else:
+    from benchmark_contamination import BenchmarkBlocklist
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,6 +56,7 @@ class _PreparationConfig:
     languages: frozenset[str]
     tasks: frozenset[str]
     sources: frozenset[str]
+    benchmark_blocklist: Path | None = None
 
 
 @dataclass
@@ -58,6 +64,7 @@ class _PreparationStats:
     input_records: int = 0
     malformed_records: int = 0
     duplicate_records: int = 0
+    contaminated_records: int = 0
     filtered_records: int = 0
     sampled_out_records: int = 0
     train_records: int = 0
@@ -65,6 +72,7 @@ class _PreparationStats:
     by_language: Counter[str] = field(default_factory=Counter)
     by_task: Counter[str] = field(default_factory=Counter)
     by_source: Counter[str] = field(default_factory=Counter)
+    by_contamination_source: Counter[str] = field(default_factory=Counter)
 
     @property
     def written_records(self) -> int:
@@ -76,6 +84,7 @@ class _PreparationStats:
             "input_records": self.input_records,
             "malformed_records": self.malformed_records,
             "duplicate_records": self.duplicate_records,
+            "contaminated_records": self.contaminated_records,
             "filtered_records": self.filtered_records,
             "sampled_out_records": self.sampled_out_records,
             "train_records": self.train_records,
@@ -84,6 +93,7 @@ class _PreparationStats:
             "by_language": dict(sorted(self.by_language.items())),
             "by_task": dict(sorted(self.by_task.items())),
             "by_source": dict(sorted(self.by_source.items())),
+            "by_contamination_source": dict(sorted(self.by_contamination_source.items())),
         }
 
 
@@ -268,6 +278,11 @@ def _prepare_dataset(config: _PreparationConfig, records: Iterable[Mapping[str, 
     writer = _ShardWriter(config.output_dir, config.shard_size)
     database_path = config.output_dir / ".dedup.sqlite3"
     deduplicator = _ExactDeduplicator(database_path)
+    blocklist = (
+        BenchmarkBlocklist(config.benchmark_blocklist, mode="read-only")
+        if config.benchmark_blocklist is not None
+        else None
+    )
 
     try:
         for raw_record in records if records is not None else _load_source(config):
@@ -278,6 +293,11 @@ def _prepare_dataset(config: _PreparationConfig, records: Iterable[Mapping[str, 
                 continue
             if not _passes_filters(record, config):
                 stats.filtered_records += 1
+                continue
+            match = blocklist.find_match([record["instruction"], record["output"]]) if blocklist is not None else None
+            if match is not None:
+                stats.contaminated_records += 1
+                stats.by_contamination_source[match.benchmark] += 1
                 continue
             if not _is_sampled_record(record, config.sample_fraction, config.seed):
                 stats.sampled_out_records += 1
@@ -301,6 +321,8 @@ def _prepare_dataset(config: _PreparationConfig, records: Iterable[Mapping[str, 
     finally:
         writer.close()
         deduplicator.close()
+        if blocklist is not None:
+            blocklist.close()
         database_path.unlink(missing_ok=True)
 
     if stats.written_records == 0:
@@ -319,6 +341,7 @@ def _prepare_dataset(config: _PreparationConfig, records: Iterable[Mapping[str, 
         "seed": config.seed,
         "shard_size": config.shard_size,
         "max_samples": config.max_samples,
+        "benchmark_blocklist": str(config.benchmark_blocklist) if config.benchmark_blocklist is not None else None,
         "filters": {
             "languages": sorted(config.languages),
             "tasks": sorted(config.tasks),
@@ -372,6 +395,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--languages", nargs="*", default=())
     parser.add_argument("--tasks", nargs="*", default=())
     parser.add_argument("--sources", nargs="*", default=())
+    parser.add_argument("--benchmark-blocklist", type=Path, default=None)
     return parser
 
 
@@ -392,6 +416,7 @@ def main() -> int:
         languages=frozenset(args.languages),
         tasks=frozenset(args.tasks),
         sources=frozenset(args.sources),
+        benchmark_blocklist=args.benchmark_blocklist.resolve() if args.benchmark_blocklist is not None else None,
     )
     _prepare_dataset(config)
     return 0

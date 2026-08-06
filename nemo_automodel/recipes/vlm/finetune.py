@@ -26,6 +26,7 @@ except ImportError:
     pass
 
 import logging
+import math
 import pathlib
 import time
 from contextlib import nullcontext
@@ -86,6 +87,11 @@ from nemo_automodel.shared.te_patches import apply_te_patches
 
 if TYPE_CHECKING:
     from torch.optim import Optimizer
+
+
+def _loss_to_perplexity(loss: float) -> float:
+    """Convert natural-log token cross-entropy to finite perplexity."""
+    return math.exp(min(float(loss), 20.0))
 
 
 logger = logging.getLogger(__name__)
@@ -1180,6 +1186,7 @@ class FinetuneRecipeForVLM(BaseRecipe):
             epoch=self.step_scheduler.epoch,
             metrics={
                 "loss": reporting_loss,
+                "perplexity": _loss_to_perplexity(reporting_loss),
                 "grad_norm": grad_norm,
                 "lr": self.optimizer[0].param_groups[0]["lr"],
                 "mem": torch.cuda.max_memory_allocated() / 1024**3,
@@ -1269,6 +1276,7 @@ class FinetuneRecipeForVLM(BaseRecipe):
             epoch=self.step_scheduler.epoch,
             metrics={
                 "val_loss": val_loss,
+                "val_perplexity": _loss_to_perplexity(val_loss),
                 "lr": self.optimizer[0].param_groups[0]["lr"],
                 "num_label_tokens": total_num_label_tokens,
                 "mem": torch.cuda.max_memory_allocated() / 1024**3,
@@ -1283,6 +1291,7 @@ class FinetuneRecipeForVLM(BaseRecipe):
                 epoch: int, the current epoch.
                 metrics: Dict[str, float], containing:
                     "val_loss": Validation loss.
+                    "val_perplexity": Exponential of validation loss.
                     "lr": Learning rate.
                     "num_label_tokens": Number of label tokens.
                     "mem": Memory allocated.
@@ -1301,10 +1310,11 @@ class FinetuneRecipeForVLM(BaseRecipe):
         self.metric_logger_valid.log(log_data)
 
         logging.info(
-            "[val] step {} | epoch {} | loss {:.4f} | lr {:.2e} | num_label_tokens {}".format(
+            "[val] step {} | epoch {} | loss {:.4f} | perplexity {:.4f} | lr {:.2e} | num_label_tokens {}".format(
                 log_data.step,
                 log_data.epoch,
                 log_data.metrics["val_loss"],
+                log_data.metrics["val_perplexity"],
                 log_data.metrics["lr"],
                 log_data.metrics["num_label_tokens"],
             )
@@ -1332,10 +1342,11 @@ class FinetuneRecipeForVLM(BaseRecipe):
         # JSONL training log (always log for detailed local records)
         self.metric_logger_train.log(log_data)
         logging.info(
-            "step {} | epoch {} | loss {:.4f} | grad_norm {:.4f} | lr {:.2e} | mem {:.2f} GiB | tps {:.2f}({:.2f}/gpu) | num_label_tokens {}".format(
+            "step {} | epoch {} | loss {:.4f} | perplexity {:.4f} | grad_norm {:.4f} | lr {:.2e} | mem {:.2f} GiB | tps {:.2f}({:.2f}/gpu) | num_label_tokens {}".format(
                 log_data.step,
                 log_data.epoch,
                 log_data.metrics["loss"],
+                log_data.metrics["perplexity"],
                 log_data.metrics["grad_norm"],
                 log_data.metrics["lr"],
                 log_data.metrics["mem"],
