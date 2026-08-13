@@ -33,8 +33,18 @@ else:
 
 logger = logging.getLogger(__name__)
 
-LANGUAGE_CONFIGS = ("eng", "hau", "swa", "xho", "yor", "zul")
-BELEBELE_CONFIGS = ("eng_Latn", "hau_Latn", "swh_Latn", "xho_Latn", "yor_Latn", "zul_Latn")
+LANGUAGE_CONFIGS = ("eng", "amh", "hau", "sna", "swa", "wol", "xho", "yor", "zul")
+BELEBELE_CONFIGS = (
+    "eng_Latn",
+    "amh_Ethi",
+    "hau_Latn",
+    "sna_Latn",
+    "swh_Latn",
+    "wol_Latn",
+    "xho_Latn",
+    "yor_Latn",
+    "zul_Latn",
+)
 
 
 @dataclass(frozen=True)

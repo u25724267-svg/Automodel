@@ -33,6 +33,7 @@ def test_afriinstruct_recipes_preserve_gemma4_e2b_text_only_contract() -> None:
         "gemma4_e2b_afriinstruct_full.yaml",
         "gemma4_e2b_inkuba_v1_ablation_peft.yaml",
         "gemma4_e2b_inkuba_afriinstruct_peft.yaml",
+        "gemma4_e2b_kseries_p2_peft.yaml",
     ):
         recipe = _load_recipe(name)
 
@@ -79,6 +80,27 @@ def test_inkuba_afriinstruct_v2_recipe_uses_qualified_mixture_and_rank32_policy(
     assert recipe["wandb"]["enable"] is False
     assert recipe["wandb"]["entity"] == "dsfsi"
     assert recipe["wandb"]["group"] == "gemma4-e2b-inkuba-afriinstruct-r32"
+
+
+def test_kseries_p2_recipe_uses_parameterized_mixture_and_one_pass_rank32_policy() -> None:
+    recipe = _load_recipe("gemma4_e2b_kseries_p2_peft.yaml")
+
+    assert "KSERIES_DATA_DIR" in recipe["dataset"]["path_or_dataset"]
+    assert "KSERIES_DATA_DIR" in recipe["validation_dataset"]["path_or_dataset"]
+    assert "KSERIES_CHECKPOINT_DIR" in recipe["checkpoint"]["checkpoint_dir"]
+    assert "KSERIES_WANDB_DIR" in recipe["wandb"]["dir"]
+    assert "KSERIES_WANDB_NAME" in recipe["wandb"]["name"]
+    assert "KSERIES_WANDB_GROUP" in recipe["wandb"]["group"]
+    assert recipe["peft"]["dim"] == 32
+    assert recipe["peft"]["alpha"] == 32
+    assert recipe["optimizer"]["lr"] == 5.0e-5
+    assert recipe["step_scheduler"]["global_batch_size"] == 8
+    assert recipe["step_scheduler"]["max_steps"] == 1000
+    assert recipe["step_scheduler"]["val_every_steps"] == 100
+    assert recipe["step_scheduler"]["ckpt_every_steps"] == 100
+    assert recipe["lr_scheduler"]["lr_warmup_steps"] == 50
+    assert recipe["wandb"]["enable"] is False
+    assert recipe["wandb"]["entity"] == "dsfsi"
 
 
 def test_inkuba_v1_ablation_preserves_v1_training_policy() -> None:

@@ -45,3 +45,6 @@ def test_build_blocklist_uses_every_pinned_dataset_partition(tmp_path: Path) -> 
         assert blocklist.find_match(["premise zul test"]) is not None
         assert blocklist.find_match(["MGSM swa test"]) is not None
         assert blocklist.find_match(["passage yor_Latn test"]) is not None
+        assert blocklist.find_match(["MMLU amh test"]) is not None
+        assert blocklist.find_match(["premise wol test"]) is not None
+        assert blocklist.find_match(["passage sna_Latn test"]) is not None
