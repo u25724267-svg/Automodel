@@ -27,7 +27,9 @@ Status as of 2026-08-13:
 - No K6/K10 benchmark run has been completed yet
 
 The source commit is published on the fork's `main` branch. Do not silently use
-a newer commit. If a change is required, record the new commit and explain why.
+a newer commit. This handoff document is newer than that commit and must be sent
+with the transfer bundle unless it is committed separately. If a source change
+is required, record the new commit and explain why.
 
 ## Research objective
 
@@ -200,6 +202,9 @@ mkdir -p \
   "$TRANSFER_ROOT/run-info/k10" \
   "$TRANSFER_ROOT/benchmarks"
 
+cp "$HOME/AfricaLLM/Automodel/examples/vlm_finetune/gemma4/K6_K10_BENCHMARK_HANDOFF.md" \
+  "$TRANSFER_ROOT/"
+
 cp -a \
   "$HOME/checkpoints/gemma4-e2b-k6/p2-r32-1k-v1/epoch_0_step_999" \
   "$TRANSFER_ROOT/checkpoints/k6/"
@@ -329,16 +334,18 @@ TORCH_BEFORE=$(/opt/venv/bin/python -c 'import torch; print(torch.__version__)')
 uv pip install --python /opt/venv/bin/python \
   "lm_eval @ git+https://github.com/EleutherAI/lm-evaluation-harness.git@f4d4b3de3ee6741a7151a9fe74945ee515262f4c" \
   "sacrebleu==2.6.0" \
+  "fuzzywuzzy==0.18.0" \
   "lxml<7"
 
 TORCH_AFTER=$(/opt/venv/bin/python -c 'import torch; print(torch.__version__)')
 test "$TORCH_BEFORE" = "$TORCH_AFTER"
 
 /opt/venv/bin/python -c \
-  "import lm_eval, lxml, peft, sacrebleu, torch, transformers; \
+  "import fuzzywuzzy, lm_eval, lxml, peft, sacrebleu, torch, transformers; \
 print('torch', torch.__version__); \
 print('transformers', transformers.__version__); \
 print('peft', peft.__version__); \
+print('fuzzywuzzy', fuzzywuzzy.__version__); \
 print('lxml', lxml.__version__); \
 print('sacrebleu', sacrebleu.__version__)"
 ```
