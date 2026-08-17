@@ -1,0 +1,56 @@
+{
+  "suite": "all",
+  "base_model": "google/gemma-4-E2B-it",
+  "checkpoint_path": "/workspace/checkpoints/k10/epoch_0_step_999",
+  "languages": [
+    "eng",
+    "hau",
+    "ibo",
+    "kin",
+    "swa",
+    "xho",
+    "yor",
+    "zul"
+  ],
+  "prompt_ids": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "task_count": 160,
+  "command": [
+    "/opt/venv/bin/python",
+    "/opt/Automodel/tools/lm_eval_compat.py",
+    "run",
+    "--model",
+    "hf-multimodal",
+    "--model_args",
+    "pretrained=google/gemma-4-E2B-it,dtype=bfloat16,attn_implementation=sdpa,peft=/workspace/checkpoints/k10/epoch_0_step_999/model",
+    "--tasks",
+    "afrimmlu_direct_eng_prompt_1,afrixnli_eng_prompt_1,afrimgsm_cot_eng_prompt_1,belebele_eng_prompt_1,afrimmlu_direct_hau_prompt_1,afrixnli_hau_prompt_1,afrimgsm_cot_hau_prompt_1,belebele_hau_prompt_1,afrimmlu_direct_ibo_prompt_1,afrixnli_ibo_prompt_1,afrimgsm_cot_ibo_prompt_1,belebele_ibo_prompt_1,afrimmlu_direct_kin_prompt_1,afrixnli_kin_prompt_1,afrimgsm_cot_kin_prompt_1,belebele_kin_prompt_1,afrimmlu_direct_swa_prompt_1,afrixnli_swa_prompt_1,afrimgsm_cot_swa_prompt_1,belebele_swa_prompt_1,afrimmlu_direct_xho_prompt_1,afrixnli_xho_prompt_1,afrimgsm_cot_xho_prompt_1,belebele_xho_prompt_1,afrimmlu_direct_yor_prompt_1,afrixnli_yor_prompt_1,afrimgsm_cot_yor_prompt_1,belebele_yor_prompt_1,afrimmlu_direct_zul_prompt_1,afrixnli_zul_prompt_1,afrimgsm_cot_zul_prompt_1,belebele_zul_prompt_1,afrimmlu_direct_eng_prompt_2,afrixnli_eng_prompt_2,afrimgsm_cot_eng_prompt_2,belebele_eng_prompt_2,afrimmlu_direct_hau_prompt_2,afrixnli_hau_prompt_2,afrimgsm_cot_hau_prompt_2,belebele_hau_prompt_2,afrimmlu_direct_ibo_prompt_2,afrixnli_ibo_prompt_2,afrimgsm_cot_ibo_prompt_2,belebele_ibo_prompt_2,afrimmlu_direct_kin_prompt_2,afrixnli_kin_prompt_2,afrimgsm_cot_kin_prompt_2,belebele_kin_prompt_2,afrimmlu_direct_swa_prompt_2,afrixnli_swa_prompt_2,afrimgsm_cot_swa_prompt_2,belebele_swa_prompt_2,afrimmlu_direct_xho_prompt_2,afrixnli_xho_prompt_2,afrimgsm_cot_xho_prompt_2,belebele_xho_prompt_2,afrimmlu_direct_yor_prompt_2,afrixnli_yor_prompt_2,afrimgsm_cot_yor_prompt_2,belebele_yor_prompt_2,afrimmlu_direct_zul_prompt_2,afrixnli_zul_prompt_2,afrimgsm_cot_zul_prompt_2,belebele_zul_prompt_2,afrimmlu_direct_eng_prompt_3,afrixnli_eng_prompt_3,afrimgsm_cot_eng_prompt_3,belebele_eng_prompt_3,afrimmlu_direct_hau_prompt_3,afrixnli_hau_prompt_3,afrimgsm_cot_hau_prompt_3,belebele_hau_prompt_3,afrimmlu_direct_ibo_prompt_3,afrixnli_ibo_prompt_3,afrimgsm_cot_ibo_prompt_3,belebele_ibo_prompt_3,afrimmlu_direct_kin_prompt_3,afrixnli_kin_prompt_3,afrimgsm_cot_kin_prompt_3,belebele_kin_prompt_3,afrimmlu_direct_swa_prompt_3,afrixnli_swa_prompt_3,afrimgsm_cot_swa_prompt_3,belebele_swa_prompt_3,afrimmlu_direct_xho_prompt_3,afrixnli_xho_prompt_3,afrimgsm_cot_xho_prompt_3,belebele_xho_prompt_3,afrimmlu_direct_yor_prompt_3,afrixnli_yor_prompt_3,afrimgsm_cot_yor_prompt_3,belebele_yor_prompt_3,afrimmlu_direct_zul_prompt_3,afrixnli_zul_prompt_3,afrimgsm_cot_zul_prompt_3,belebele_zul_prompt_3,afrimmlu_direct_eng_prompt_4,afrixnli_eng_prompt_4,afrimgsm_cot_eng_prompt_4,belebele_eng_prompt_4,afrimmlu_direct_hau_prompt_4,afrixnli_hau_prompt_4,afrimgsm_cot_hau_prompt_4,belebele_hau_prompt_4,afrimmlu_direct_ibo_prompt_4,afrixnli_ibo_prompt_4,afrimgsm_cot_ibo_prompt_4,belebele_ibo_prompt_4,afrimmlu_direct_kin_prompt_4,afrixnli_kin_prompt_4,afrimgsm_cot_kin_prompt_4,belebele_kin_prompt_4,afrimmlu_direct_swa_prompt_4,afrixnli_swa_prompt_4,afrimgsm_cot_swa_prompt_4,belebele_swa_prompt_4,afrimmlu_direct_xho_prompt_4,afrixnli_xho_prompt_4,afrimgsm_cot_xho_prompt_4,belebele_xho_prompt_4,afrimmlu_direct_yor_prompt_4,afrixnli_yor_prompt_4,afrimgsm_cot_yor_prompt_4,belebele_yor_prompt_4,afrimmlu_direct_zul_prompt_4,afrixnli_zul_prompt_4,afrimgsm_cot_zul_prompt_4,belebele_zul_prompt_4,afrimmlu_direct_eng_prompt_5,afrixnli_eng_prompt_5,afrimgsm_cot_eng_prompt_5,belebele_eng_prompt_5,afrimmlu_direct_hau_prompt_5,afrixnli_hau_prompt_5,afrimgsm_cot_hau_prompt_5,belebele_hau_prompt_5,afrimmlu_direct_ibo_prompt_5,afrixnli_ibo_prompt_5,afrimgsm_cot_ibo_prompt_5,belebele_ibo_prompt_5,afrimmlu_direct_kin_prompt_5,afrixnli_kin_prompt_5,afrimgsm_cot_kin_prompt_5,belebele_kin_prompt_5,afrimmlu_direct_swa_prompt_5,afrixnli_swa_prompt_5,afrimgsm_cot_swa_prompt_5,belebele_swa_prompt_5,afrimmlu_direct_xho_prompt_5,afrixnli_xho_prompt_5,afrimgsm_cot_xho_prompt_5,belebele_xho_prompt_5,afrimmlu_direct_yor_prompt_5,afrixnli_yor_prompt_5,afrimgsm_cot_yor_prompt_5,belebele_yor_prompt_5,afrimmlu_direct_zul_prompt_5,afrixnli_zul_prompt_5,afrimgsm_cot_zul_prompt_5,belebele_zul_prompt_5",
+    "--device",
+    "cuda:0",
+    "--batch_size",
+    "1",
+    "--num_fewshot",
+    "0",
+    "--apply_chat_template",
+    "--log_samples",
+    "--show_config",
+    "--output_path",
+    "/workspace/results/author-suite/k10-step999-20260815"
+  ],
+  "upstream_revisions": {
+    "lm_evaluation_harness": "f4d4b3de3ee6741a7151a9fe74945ee515262f4c",
+    "masakhane_nlu": "1f8be590da6699aee3dc23de6f63e801e2352eff",
+    "belebele": "918890beb2290a8d3ef2d7a90369925959e1bacf"
+  },
+  "author_alignment": {
+    "multiple_choice": "upstream loglikelihood tasks and accuracy aggregation",
+    "afrimgsm": "upstream generate_until, CoT prompts, filters, and exact-match aggregation",
+    "prompt_policy": "all five author prompt variants, reported separately",
+    "compatibility_patch": "Expose lm_eval.utils.weighted_f1_score to pinned AfriMMLU/AfriXNLI prompt modules; no task templates, requests, filters, predictions, or aggregators are replaced"
+  }
+}

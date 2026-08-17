@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 LM_EVAL_COMMIT = "f4d4b3de3ee6741a7151a9fe74945ee515262f4c"
 IROKOBENCH_COMMIT = "1f8be590da6699aee3dc23de6f63e801e2352eff"
 BELEBELE_COMMIT = "918890beb2290a8d3ef2d7a90369925959e1bacf"
-LANGUAGES = ("eng", "hau", "swa", "xho", "yor", "zul")
+LANGUAGES = ("eng", "hau", "ibo", "kin", "swa", "xho", "yor", "zul")
 PROMPT_IDS = (1, 2, 3, 4, 5)
 
 

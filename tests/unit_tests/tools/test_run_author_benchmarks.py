@@ -15,7 +15,24 @@
 import json
 from pathlib import Path
 
-from tools.run_author_benchmarks import BenchmarkRun, build_command, run_benchmarks, task_names
+from tools.run_author_benchmarks import LANGUAGES, BenchmarkRun, build_command, run_benchmarks, task_names
+
+
+def test_default_author_matrix_covers_k6_languages_and_controls(tmp_path: Path) -> None:
+    run = BenchmarkRun(
+        suite="all",
+        base_model="google/gemma-4-E2B-it",
+        output_dir=tmp_path,
+    )
+
+    tasks = task_names(run)
+
+    assert LANGUAGES == ("eng", "hau", "ibo", "kin", "swa", "xho", "yor", "zul")
+    assert len(tasks) == 160
+    assert "afrimmlu_direct_ibo_prompt_1" in tasks
+    assert "afrixnli_kin_prompt_5" in tasks
+    assert "afrimgsm_cot_ibo_prompt_5" in tasks
+    assert "belebele_kin_prompt_1" in tasks
 
 
 def test_author_task_names_cover_upstream_prompts_and_suites(tmp_path: Path) -> None:
