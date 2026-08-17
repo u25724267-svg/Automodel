@@ -119,7 +119,6 @@ def test_k6_r16_two_epoch_recipe_uses_nvidia_lr_policy_and_environment_wandb() -
     recipe = _load_recipe("gemma4_e2b_k6_p2_r16_2ep.yaml")
 
     for section in (
-        "processor",
         "distributed",
         "freeze_config",
         "loss_fn",
@@ -134,6 +133,8 @@ def test_k6_r16_two_epoch_recipe_uses_nvidia_lr_policy_and_environment_wandb() -
     assert recipe["validation_dataset"]["path_or_dataset"] == "/data/gemma4-k6/mixture-p2-v2/validation_meta.json"
     assert recipe["checkpoint"]["checkpoint_dir"] == "/checkpoints/gemma4-e2b-k6/p2-r16-2ep-nvidia-lr-v1"
     assert recipe["model"]["revision"] == "3e22461f65e89153144f8adb70e3b8c2cc9845a7"
+    assert recipe["processor"]["revision"] == recipe["model"]["revision"]
+    assert recipe["processor"]["padding_side"] == baseline["processor"]["padding_side"]
     assert recipe["peft"]["dim"] == 16
     assert recipe["peft"]["alpha"] == 32
     assert recipe["peft"]["dropout"] == 0.0

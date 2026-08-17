@@ -50,6 +50,7 @@ model:
     output_hidden_states: true
 
 processor:
+  revision: 3e22461f65e89153144f8adb70e3b8c2cc9845a7
   padding_side: right
 
 peft:
