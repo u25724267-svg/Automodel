@@ -5,6 +5,9 @@ Gemma 4 African-language staircase on another machine. It records what has been
 completed, what is still open, which artifacts are authoritative, how to move
 them, and the constraints that the next run must preserve.
 
+For reproduction of the complete lineage beginning with AfriInstruct and
+Inkuba, read `GEMMA4_EXPERIMENT_REPRODUCTION.md` first.
+
 The raw Copilot chat can also be transferred as supporting evidence, but it is
 not a substitute for this document. A copied chat transcript does not
 automatically become an active chat session on another machine.
