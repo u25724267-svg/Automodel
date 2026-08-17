@@ -1,5 +1,9 @@
 # Gemma 4 K6/K10 benchmark handoff
 
+> **Historical execution handoff:** K6 and K10 author-suite runs are now
+> complete and their raw results are committed at baseline `d872244e`. Use
+> `KSERIES_NEXT_RUN_HANDOFF.md` for current K6/K10/K14 state and continuation.
+
 This document is the operational handoff for an agent benchmarking the completed
 K6 and K10 Gemma 4 E2B adapters on another machine. It records the research
 question, controlled training setup, data differences, exact artifacts, tested
@@ -24,7 +28,8 @@ Status as of 2026-08-13:
 - For both runs, `LATEST` and `LOWEST_VAL` resolve to `epoch_0_step_999`
 - Primary benchmark implementation: `tools/run_author_benchmarks.py`
 - Longitudinal control implementation: `tools/afriinstruct_benchmark.py`
-- No K6/K10 benchmark run has been completed yet
+- This section records the pre-execution state; current author-suite results are
+  under `kseries-benchmark/results/author-suite/`
 
 The source commit is published on the fork's `main` branch. Do not silently use
 a newer commit. This handoff document is newer than that commit and must be sent
