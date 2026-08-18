@@ -45,6 +45,7 @@ def test_afriinstruct_recipes_preserve_gemma4_e2b_text_only_contract() -> None:
         "gemma4_e2b_inkuba_afriinstruct_peft.yaml",
         "gemma4_e2b_kseries_p2_peft.yaml",
         "gemma4_e2b_k6_p2_r16_2ep.yaml",
+        "gemma4_e2b_k10_p2_r32_2ep.yaml",
     ):
         recipe = _load_recipe(name)
 
@@ -157,6 +158,44 @@ def test_k6_r16_two_epoch_recipe_uses_nvidia_lr_policy_and_environment_wandb() -
     assert env["WANDB_ENTITY"] == "dsfsi"
     assert env["WANDB_PROJECT"] == "gemma4-african-instruction"
     assert env["WANDB_DIR"] == "/logs/wandb"
+
+
+def test_k10_r32_two_epoch_recipe_preserves_original_k10_policy() -> None:
+    baseline = _load_recipe("gemma4_e2b_kseries_p2_peft.yaml")
+    recipe = _load_recipe("gemma4_e2b_k10_p2_r32_2ep.yaml")
+
+    for section in (
+        "peft",
+        "distributed",
+        "freeze_config",
+        "loss_fn",
+        "packed_sequence",
+        "dataloader",
+        "validation_dataloader",
+        "optimizer",
+        "lr_scheduler",
+        "rng",
+    ):
+        assert recipe[section] == baseline[section]
+
+    for key, value in baseline["step_scheduler"].items():
+        if key not in {"max_steps", "num_epochs"}:
+            assert recipe["step_scheduler"][key] == value
+
+    assert recipe["step_scheduler"]["num_epochs"] == 2
+    assert "max_steps" not in recipe["step_scheduler"]
+    assert recipe["dataset"]["path_or_dataset"] == "/data/gemma4-k10/mixture-p2-v1/train_meta.json"
+    assert recipe["validation_dataset"]["path_or_dataset"] == "/data/gemma4-k10/mixture-p2-v1/validation_meta.json"
+    assert recipe["checkpoint"]["checkpoint_dir"] == "/checkpoints/gemma4-e2b-k10/p2-r32-2ep-v1"
+    assert recipe["model"]["revision"] == "3e22461f65e89153144f8adb70e3b8c2cc9845a7"
+    assert recipe["processor"]["revision"] == recipe["model"]["revision"]
+    assert recipe["processor"]["padding_side"] == baseline["processor"]["padding_side"]
+    assert recipe["wandb"]["enable"] is False
+    assert recipe["wandb"]["entity"] == "${WANDB_ENTITY}"
+    assert recipe["wandb"]["project"] == "${WANDB_PROJECT}"
+    assert recipe["wandb"]["name"] == "gemma4-e2b-k10-p2-r32-2ep-v1"
+    assert recipe["wandb"]["group"] == "gemma4-e2b-k10-p2-r32-2ep"
+    assert recipe["wandb"]["dir"] == "${WANDB_DIR}"
 
 
 def test_inkuba_v1_ablation_preserves_v1_training_policy() -> None:
