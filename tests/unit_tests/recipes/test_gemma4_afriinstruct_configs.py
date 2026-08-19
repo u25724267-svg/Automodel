@@ -47,6 +47,7 @@ def test_afriinstruct_recipes_preserve_gemma4_e2b_text_only_contract() -> None:
         "gemma4_e2b_k6_p2_r16_2ep.yaml",
         "gemma4_e2b_k10_p2_r32_2ep.yaml",
         "gemma4_e2b_k10_p2_r32_2ep_resume_step1199.yaml",
+        "gemma4_e2b_k10_p2_r16_2ep_nvidia_lr.yaml",
     ):
         recipe = _load_recipe(name)
 
@@ -232,6 +233,40 @@ def test_k10_resume_preserves_train_state_and_reduces_validation_memory() -> Non
     assert resume["wandb"]["resume"] == "must"
     assert resume["wandb"]["project"] == original["wandb"]["project"]
     assert resume["wandb"]["name"] == original["wandb"]["name"]
+
+
+def test_k10_r16_nvidia_policy_uses_k10_data_and_memory_safe_validation() -> None:
+    k6_nvidia = _load_recipe("gemma4_e2b_k6_p2_r16_2ep.yaml")
+    recipe = _load_recipe("gemma4_e2b_k10_p2_r16_2ep_nvidia_lr.yaml")
+
+    for section in (
+        "model",
+        "processor",
+        "peft",
+        "distributed",
+        "freeze_config",
+        "loss_fn",
+        "packed_sequence",
+        "dataloader",
+        "optimizer",
+        "lr_scheduler",
+        "rng",
+    ):
+        assert recipe[section] == k6_nvidia[section]
+
+    assert recipe["step_scheduler"]["num_epochs"] == 2
+    assert "max_steps" not in recipe["step_scheduler"]
+    assert recipe["step_scheduler"]["ckpt_every_steps"] == 200
+    assert recipe["step_scheduler"]["val_every_steps"] == 200
+    assert recipe["dataset"]["path_or_dataset"] == "/data/gemma4-k10/mixture-p2-v1/train_meta.json"
+    assert recipe["validation_dataset"]["path_or_dataset"] == "/data/gemma4-k10/mixture-p2-v1/validation_meta.json"
+    assert recipe["validation_dataloader"]["num_workers"] == 0
+    assert recipe["validation_dataloader"]["persistent_workers"] is False
+    assert recipe["checkpoint"]["checkpoint_dir"] == "/checkpoints/gemma4-e2b-k10/p2-r16-2ep-nvidia-lr-v1"
+    assert "restore_from" not in recipe["checkpoint"]
+    assert recipe["wandb"]["project"] == "${WANDB_PROJECT}"
+    assert recipe["wandb"]["name"] == "gemma4-e2b-k10-p2-r16-2ep-nvidia-lr-v1"
+    assert recipe["wandb"]["group"] == "gemma4-e2b-k10-p2-r16-2ep-nvidia-lr"
 
 
 def test_inkuba_v1_ablation_preserves_v1_training_policy() -> None:

@@ -1,6 +1,6 @@
 # Gemma 4 experiment reproduction index
 
-Use this document to reproduce the six completed full Gemma 4 African-language
+Use this document to reproduce the eight completed full Gemma 4 African-language
 experiments. Smoke, qualification, interrupted, and resume-test runs are not
 part of the primary comparison.
 
@@ -21,6 +21,7 @@ Read these detailed documents when reproducing a specific phase:
 - `README_inkuba_afriinstruct_v2.md`
 - `KSERIES_NEXT_RUN_HANDOFF.md`
 - `K6_K10_BENCHMARK_HANDOFF.md`
+- `KSERIES_TWO_EPOCH_RUN_REPORT.md`
 
 ## Completed full runs
 
@@ -32,6 +33,8 @@ Read these detailed documents when reproducing a specific phase:
 | K6 P2 | 1,000 | r32 | `/home/casper/k6-sft/mixture-p2-v2` | `/home/casper/checkpoints/gemma4-e2b-k6/p2-r32-1k-v1` | `fw1uvbfb` |
 | K10 P2 | 1,000 | r32 | `/home/casper/k10-sft/mixture-p2-v1` | `/home/casper/checkpoints/gemma4-e2b-k10/p2-r32-1k-v1` | `kje5g1e7` |
 | K14 P3 | 1,000 | r32 | `/home/casper/k14-sft/mixture-p3-final-v2` | `/home/casper/checkpoints/gemma4-e2b-k14/p3-r32-1k-v1` | `nvjz0y4j` |
+| K6 P2 two-epoch NVIDIA LR | 2,116 | r16 | `/ext_data/casper_neo/Casper/kseries-next-run/data/k6-sft/mixture-p2-v2` | `/ext_data/casper_neo/Casper/kseries-next-run/checkpoints/gemma4-e2b-k6/p2-r16-2ep-nvidia-lr-v1` | `m8r79yjp` |
+| K10 P2 two-epoch original LR | 2,116 | r32 | `/ext_data/casper_neo/Casper/kseries-next-run/data/k10-sft/mixture-p2-v1` | `/ext_data/casper_neo/Casper/kseries-next-run/checkpoints/gemma4-e2b-k10/p2-r32-2ep-v1` | `w9knou92` |
 
 All checkpoint roots contain `training.jsonl`, `validation.jsonl`, and full
 resumable checkpoints with model, optimizer, RNG, dataloader, scheduler, and
@@ -62,6 +65,8 @@ Recipes:
 | Inkuba-only v1 | `gemma4_e2b_inkuba_v1_ablation_peft.yaml` |
 | Inkuba + AfriInstruct v2 | `gemma4_e2b_inkuba_afriinstruct_peft.yaml` |
 | K6/K10/K14 | `gemma4_e2b_kseries_p2_peft.yaml` |
+| K6 P2 two-epoch NVIDIA LR | `gemma4_e2b_k6_p2_r16_2ep.yaml` |
+| K10 P2 two-epoch original LR | `gemma4_e2b_k10_p2_r32_2ep.yaml`; resume: `gemma4_e2b_k10_p2_r32_2ep_resume_step1199.yaml` |
 
 All recipe paths are under `examples/vlm_finetune/gemma4/`.
 
@@ -163,6 +168,11 @@ K-series:
 Each K-series root also contains exact `profile-*`, `plans-*`, accepted mixture
 summaries, manifests, and normalized source pools.
 
+The completed Pitori two-epoch artifacts and their hashes are documented in
+`examples/vlm_finetune/gemma4/KSERIES_TWO_EPOCH_RUN_REPORT.md`. Their local data,
+checkpoint, HF cache, and W&B roots are under
+`/ext_data/casper_neo/Casper/kseries-next-run`.
+
 ## Reproduction procedure
 
 1. Clone and verify the repository baseline.
@@ -187,6 +197,10 @@ summaries, manifests, and normalized source pools.
   states are preserved, but a bit-for-bit fresh source checkout cannot be
   proven.
 - K14 has a recorded clean launch baseline at `7db2a455`.
+- The Pitori K6 two-epoch run launched from `cb8c03f0`. The K10 two-epoch run
+  launched from the same HEAD with a recipe later committed in `77be8d57`, then
+  resumed from step 1,199 using a separately hashed resume config. See
+  `KSERIES_TWO_EPOCH_RUN_REPORT.md` for the exact limitation and hashes.
 - The experiments are operationally reproducible and exactly resumable while
   the external data/checkpoint artifacts remain intact. Preserve them in durable
   storage with per-file SHA-256 manifests for archival-grade reproducibility.
