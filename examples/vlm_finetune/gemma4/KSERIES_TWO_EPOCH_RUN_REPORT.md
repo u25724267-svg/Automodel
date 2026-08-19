@@ -41,25 +41,36 @@ bind-mounted container.
 
 ## Accepted data
 
-Both mixtures use the deterministic `p2_quality_constrained` policy, exact
-Gemma token counts, answer-only labels, benchmark blocking, and the accepted
-K-series train/validation split.
+The accepted mixtures use deterministic token-aware planning, exact Gemma token
+counts, answer-only labels, benchmark blocking, and validation-disjoint splits.
+K6/K10 use `p2_quality_constrained`; K14 uses the accepted P3 token-stratified
+plan.
 
-| Field | K6 P2 v2 | K10 P2 v1 |
-|---|---:|---:|
-| Languages | 6 | 10 |
-| Train records | 153,273 | 143,579 |
-| Train tokens | 31,348,990 | 31,349,312 |
-| Planned train tokens | 31,353,533 | 31,353,533 |
-| Token deviation | -4,543 | -4,221 |
-| Validation records | 23,470 | 30,306 |
-| Validation tokens | 8,198,968 | 9,784,477 |
-| Container root | `/data/gemma4-k6/mixture-p2-v2` | `/data/gemma4-k10/mixture-p2-v1` |
-| Host root | `/ext_data/casper_neo/Casper/kseries-next-run/data/k6-sft/mixture-p2-v2` | `/ext_data/casper_neo/Casper/kseries-next-run/data/k10-sft/mixture-p2-v1` |
+| Field | K6 P2 v2 | K10 P2 v1 | K14 P3 final v2 |
+|---|---:|---:|---:|
+| Languages | 6 | 10 | 14 |
+| Train records | 153,273 | 143,579 | 268,251 |
+| Unique train records | Not recorded in mixture summary | Not recorded in mixture summary | 219,196 |
+| Train tokens | 31,348,990 | 31,349,312 | 31,353,562 |
+| Planned train tokens | 31,353,533 | 31,353,533 | 31,353,533 |
+| Token deviation | -4,543 | -4,221 | +29 |
+| Supervised tokens | Not recorded in mixture summary | Not recorded in mixture summary | 12,669,914 |
+| Validation records | 23,470 | 30,306 | 23,440 |
+| Validation tokens | 8,198,968 | 9,784,477 | 6,379,444 |
+| Populated language-task cells | 29/30 | 47/50 | 70/70 |
+| Container root | `/data/gemma4-k6/mixture-p2-v2` | `/data/gemma4-k10/mixture-p2-v1` | `/data/gemma4-k14/mixture-p3-final-v2` |
+| Host root | `/ext_data/casper_neo/Casper/kseries-next-run/data/k6-sft/mixture-p2-v2` | `/ext_data/casper_neo/Casper/kseries-next-run/data/k10-sft/mixture-p2-v1` | `/ext_data/casper_neo/Casper/kseries-next-run/data/k14-sft/mixture-p3-final-v2` |
 
 K6 languages are Hausa, Igbo, Kinyarwanda, Swahili, Yoruba, and isiZulu. K10
-adds Amharic, isiXhosa, Shona, and Wolof. Both target instruction, QA,
-translation, classification, and NER.
+adds Amharic, isiXhosa, Shona, and Wolof. K14 adds Twi, Luganda, Sesotho, and
+Somali. Every mixture targets instruction, QA, translation, classification,
+and NER.
+
+K14 has zero train-validation overlap, zero published benchmark matches, and a
+maximum source-record repetition count of four. Its packed-token quality shares
+are human 47.11%, curated 7.34%, mixed 41.26%, and silver 4.29%. Kinyarwanda and
+isiXhosa QA are low-capacity cells; Wolof classification and Amharic/Somali NER
+use accepted silver sources. These limitations must remain visible in analysis.
 
 ### Data hashes
 
@@ -71,6 +82,9 @@ translation, classification, and NER.
 | K10 `summary.json` | `775da5fc0d6481b50ed328e060933f39e31319f539df87a55696711c09d6cf95` |
 | K10 `train_meta.json` | `24c36637225b8ecf474c15301a6cbc5c916e92abe9eef237aea21cada41e9bb2` |
 | K10 `validation_meta.json` | `3906353425ab0da96d81ac7c08a9ec8ca75eed1d3bd2efc1107d0730e3f1c2f8` |
+| K14 `summary.json` | `98ea2249fe6cdc86e4db7fe689b96d35ddf85da7c0eff144665ee2ce5203e10a` |
+| K14 `train_meta.json` | `5d6b8424985fa07c48306189fabdd07df33b51b4f25e27840284b0a6fa52e74d` |
+| K14 `validation_meta.json` | `560549273ef3ee460d7501aa69fbc939ede3e7871ce992b4381199b5997c02ad` |
 
 ## Experiment matrix
 
@@ -79,6 +93,7 @@ translation, classification, and NER.
 | K6 r16 NVIDIA LR | K6 P2 v2 | 16 / 32 / 0.0 | `2e-4` / `2e-6` derived | 211 derived | 2 / 2,116 | Every 100 | `m8r79yjp` |
 | K10 r32 original LR | K10 P2 v1 | 32 / 32 / 0.05 | `5e-5` / `5e-6` | 50 | 2 / 2,116 | Every 100 initially; every 200 after resume | `w9knou92` |
 | K10 r16 NVIDIA LR | K10 P2 v1 | 16 / 32 / 0.0 | `2e-4` / `2e-6` derived | 211 derived | 2 / 2,116 expected | Every 200 | Assigned at launch |
+| K14 r16 NVIDIA LR | K14 P3 final v2 | 16 / 32 / 0.0 | `2e-4` / `2e-6` derived | 211 expected | 2 / 2,116 expected | Every 200 | Assigned at launch |
 
 Every arm starts independently from the pinned Gemma base. No arm initializes
 from another adapter.
@@ -170,14 +185,46 @@ validation series.
 
 ## Approved K10 r16 NVIDIA-LR run
 
-Status: configured and validated; not yet launched.
+Status: running.
 
 | Field | Value |
 |---|---|
 | Planned run name | `gemma4-e2b-k10-p2-r16-2ep-nvidia-lr-v1` |
 | Recipe | `gemma4_e2b_k10_p2_r16_2ep_nvidia_lr.yaml` |
-| Recipe SHA-256 before launch | `02fa6f8d94313a0c9cca990ac2dbe50ec2673b05ab22a03dadd313d5bf5f9ae6` |
+| Launch source commit | `afa389e2a2a449845e1f0b33e535d75e82b86c8d` |
+| Recipe SHA-256 | `02fa6f8d94313a0c9cca990ac2dbe50ec2673b05ab22a03dadd313d5bf5f9ae6` |
+| W&B | `https://wandb.ai/dsfsi/gemma4-african-instruction/runs/vebv31eh` |
+| Container / GPU | `gemma4-e2b-k10-p2-r16-2ep-nvidia-lr-v1` / GPU 0 |
+| Container start | `2026-08-19T09:48:33Z` |
 | Data | Accepted K10 P2 v1, unchanged |
+| LoRA | rank 16, alpha 32, dropout 0.0 |
+| Optimizer | AdamW, peak LR `2e-4`, weight decay 0.01, betas 0.9/0.95, epsilon `1e-8` |
+| LR schedule | NVIDIA-derived cosine: initial `2e-5`, peak `2e-4`, minimum `2e-6`, 211 warmup steps, 2,116 decay steps |
+| Duration | Two epochs; 2,116 optimizer steps |
+| Batch / packing | Global 8, local 1, 4,096 tokens, packing ratio 0.9 |
+| Validation / checkpoint | Every 200 optimizer steps |
+| Train / validation workers | 4 persistent / 0 non-persistent |
+| W&B name | `gemma4-e2b-k10-p2-r16-2ep-nvidia-lr-v1` |
+| Checkpoint root | `/checkpoints/gemma4-e2b-k10/p2-r16-2ep-nvidia-lr-v1` |
+| Step 0 | loss 3.4295, PPL 30.8627, grad norm 34.9966, LR `2.09e-5`, 970.12 tokens/s |
+| Step-0 GPU / steady host memory | 30.27 GiB / 13.05 GiB |
+
+The run started independently from the unchanged pinned Gemma base using the
+clean source commit above. Focused tests, YAML lint, the production K10 loader,
+W&B access, resolved schedule, step 0, GPU allocation, host memory, and
+persistent artifact creation all passed. After completion, append the finish
+time, final/best metrics and checkpoints, runtime, W&B state, and adapter hash.
+
+## Approved K14 r16 NVIDIA-LR run
+
+Status: configured, transferred, audited, production-loader preflight passed, and ready for clean commit and launch.
+
+| Field | Value |
+|---|---|
+| Planned run name | `gemma4-e2b-k14-p3-r16-2ep-nvidia-lr-v1` |
+| Recipe | `gemma4_e2b_k14_p3_r16_2ep_nvidia_lr.yaml` |
+| Recipe SHA-256 before launch | `254d4e481f291189d331930f5f0259aa8187bd2356692af64b9f0fe00a2b70a5` |
+| Data | Accepted K14 P3 final v2, unchanged |
 | LoRA | rank 16, alpha 32, dropout 0.0 |
 | Optimizer | AdamW, peak LR `2e-4`, weight decay 0.01, betas 0.9/0.95, epsilon `1e-8` |
 | LR schedule | NVIDIA-derived cosine: initial `2e-5`, 10% warmup, minimum `2e-6` |
@@ -185,14 +232,27 @@ Status: configured and validated; not yet launched.
 | Batch / packing | Global 8, local 1, 4,096 tokens, packing ratio 0.9 |
 | Validation / checkpoint | Every 200 optimizer steps |
 | Train / validation workers | 4 persistent / 0 non-persistent |
-| W&B name | `gemma4-e2b-k10-p2-r16-2ep-nvidia-lr-v1` |
-| Checkpoint root | `/checkpoints/gemma4-e2b-k10/p2-r16-2ep-nvidia-lr-v1` |
+| W&B name | `gemma4-e2b-k14-p3-r16-2ep-nvidia-lr-v1` |
+| Checkpoint root | `/checkpoints/gemma4-e2b-k14/p3-r16-2ep-nvidia-lr-v1` |
 
-The launch must start from the unchanged pinned Gemma base, use a clean source
-commit containing this recipe and report, and pass the production loader plus
-step-0 gates. After launch, append the source commit, W&B ID, container times,
-and resolved schedule to this section. After completion, append final/best
-metrics and adapter hashes.
+Transfer only the accepted materialized mixture for this training run:
+
+```bash
+ROOT="/ext_data/casper_neo/Casper/kseries-next-run/data"
+mkdir -p "$ROOT/k14-sft/mixture-p3-final-v2"
+
+rsync -a --no-owner --no-group --info=progress2 --partial --append-verify \
+   casper@spark-dsfsi.up.ac.za:/home/casper/k14-sft/mixture-p3-final-v2/ \
+   "$ROOT/k14-sft/mixture-p3-final-v2/"
+```
+
+The transferred mixture contains 31 train shards and 24 validation shards. All
+manifest-relative paths, 291,691 JSONL records, conversation schemas, ownership,
+summary totals, and hashes were verified locally. The production container
+loaded the pinned processor plus all 268,251 train and 23,440 validation
+records. Commit this recipe, tests, and the completed pre-launch report; launch
+from the unchanged pinned Gemma base; and append the source commit, W&B ID,
+resolved schedule, step-0 metrics, and measured memory here.
 
 ## Launch and monitoring contract
 

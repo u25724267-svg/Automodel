@@ -48,6 +48,7 @@ def test_afriinstruct_recipes_preserve_gemma4_e2b_text_only_contract() -> None:
         "gemma4_e2b_k10_p2_r32_2ep.yaml",
         "gemma4_e2b_k10_p2_r32_2ep_resume_step1199.yaml",
         "gemma4_e2b_k10_p2_r16_2ep_nvidia_lr.yaml",
+        "gemma4_e2b_k14_p3_r16_2ep_nvidia_lr.yaml",
     ):
         recipe = _load_recipe(name)
 
@@ -267,6 +268,36 @@ def test_k10_r16_nvidia_policy_uses_k10_data_and_memory_safe_validation() -> Non
     assert recipe["wandb"]["project"] == "${WANDB_PROJECT}"
     assert recipe["wandb"]["name"] == "gemma4-e2b-k10-p2-r16-2ep-nvidia-lr-v1"
     assert recipe["wandb"]["group"] == "gemma4-e2b-k10-p2-r16-2ep-nvidia-lr"
+
+
+def test_k14_r16_nvidia_policy_uses_k14_p3_data_and_memory_safe_validation() -> None:
+    k10_nvidia = _load_recipe("gemma4_e2b_k10_p2_r16_2ep_nvidia_lr.yaml")
+    recipe = _load_recipe("gemma4_e2b_k14_p3_r16_2ep_nvidia_lr.yaml")
+
+    for section in (
+        "model",
+        "processor",
+        "peft",
+        "step_scheduler",
+        "distributed",
+        "freeze_config",
+        "loss_fn",
+        "packed_sequence",
+        "dataloader",
+        "validation_dataloader",
+        "optimizer",
+        "lr_scheduler",
+        "rng",
+    ):
+        assert recipe[section] == k10_nvidia[section]
+
+    assert recipe["dataset"]["path_or_dataset"] == "/data/gemma4-k14/mixture-p3-final-v2/train_meta.json"
+    assert recipe["validation_dataset"]["path_or_dataset"] == "/data/gemma4-k14/mixture-p3-final-v2/validation_meta.json"
+    assert recipe["checkpoint"]["checkpoint_dir"] == "/checkpoints/gemma4-e2b-k14/p3-r16-2ep-nvidia-lr-v1"
+    assert "restore_from" not in recipe["checkpoint"]
+    assert recipe["wandb"]["project"] == "${WANDB_PROJECT}"
+    assert recipe["wandb"]["name"] == "gemma4-e2b-k14-p3-r16-2ep-nvidia-lr-v1"
+    assert recipe["wandb"]["group"] == "gemma4-e2b-k14-p3-r16-2ep-nvidia-lr"
 
 
 def test_inkuba_v1_ablation_preserves_v1_training_policy() -> None:
