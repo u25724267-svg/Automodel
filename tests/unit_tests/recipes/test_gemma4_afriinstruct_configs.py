@@ -46,6 +46,7 @@ def test_afriinstruct_recipes_preserve_gemma4_e2b_text_only_contract() -> None:
         "gemma4_e2b_kseries_p2_peft.yaml",
         "gemma4_e2b_k6_p2_r16_2ep.yaml",
         "gemma4_e2b_k10_p2_r32_2ep.yaml",
+        "gemma4_e2b_k10_p2_r32_2ep_resume_step1199.yaml",
     ):
         recipe = _load_recipe(name)
 
@@ -196,6 +197,41 @@ def test_k10_r32_two_epoch_recipe_preserves_original_k10_policy() -> None:
     assert recipe["wandb"]["name"] == "gemma4-e2b-k10-p2-r32-2ep-v1"
     assert recipe["wandb"]["group"] == "gemma4-e2b-k10-p2-r32-2ep"
     assert recipe["wandb"]["dir"] == "${WANDB_DIR}"
+
+
+def test_k10_resume_preserves_train_state_and_reduces_validation_memory() -> None:
+    original = _load_recipe("gemma4_e2b_k10_p2_r32_2ep.yaml")
+    resume = _load_recipe("gemma4_e2b_k10_p2_r32_2ep_resume_step1199.yaml")
+
+    for section in (
+        "model",
+        "processor",
+        "peft",
+        "distributed",
+        "freeze_config",
+        "loss_fn",
+        "dataset",
+        "packed_sequence",
+        "dataloader",
+        "validation_dataset",
+        "optimizer",
+        "lr_scheduler",
+        "rng",
+    ):
+        assert resume[section] == original[section]
+
+    assert resume["checkpoint"]["checkpoint_dir"] == original["checkpoint"]["checkpoint_dir"]
+    assert resume["checkpoint"]["restore_from"] == "LATEST"
+    assert resume["step_scheduler"]["num_epochs"] == 2
+    assert resume["step_scheduler"]["ckpt_every_steps"] == 200
+    assert resume["step_scheduler"]["val_every_steps"] == 200
+    assert resume["validation_dataloader"]["num_workers"] == 0
+    assert resume["validation_dataloader"]["persistent_workers"] is False
+    assert resume["validation_dataloader"]["pin_memory"] == original["validation_dataloader"]["pin_memory"]
+    assert resume["wandb"]["id"] == "w9knou92"
+    assert resume["wandb"]["resume"] == "must"
+    assert resume["wandb"]["project"] == original["wandb"]["project"]
+    assert resume["wandb"]["name"] == original["wandb"]["name"]
 
 
 def test_inkuba_v1_ablation_preserves_v1_training_policy() -> None:
