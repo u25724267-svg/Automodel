@@ -92,8 +92,8 @@ use accepted silver sources. These limitations must remain visible in analysis.
 |---|---|---|---|---:|---|---|---|
 | K6 r16 NVIDIA LR | K6 P2 v2 | 16 / 32 / 0.0 | `2e-4` / `2e-6` derived | 211 derived | 2 / 2,116 | Every 100 | `m8r79yjp` |
 | K10 r32 original LR | K10 P2 v1 | 32 / 32 / 0.05 | `5e-5` / `5e-6` | 50 | 2 / 2,116 | Every 100 initially; every 200 after resume | `w9knou92` |
-| K10 r16 NVIDIA LR | K10 P2 v1 | 16 / 32 / 0.0 | `2e-4` / `2e-6` derived | 211 derived | 2 / 2,116 expected | Every 200 | Assigned at launch |
-| K14 r16 NVIDIA LR | K14 P3 final v2 | 16 / 32 / 0.0 | `2e-4` / `2e-6` derived | 211 expected | 2 / 2,116 expected | Every 200 | Assigned at launch |
+| K10 r16 NVIDIA LR | K10 P2 v1 | 16 / 32 / 0.0 | `2e-4` / `2e-6` derived | 211 | 2 / 2,116 | Every 200 | `vebv31eh` |
+| K14 r16 NVIDIA LR | K14 P3 final v2 | 16 / 32 / 0.0 | `2e-4` / `2e-6` derived | 211 | 2 / 2,110 | Every 200 | `zawhmm8g` |
 
 Every arm starts independently from the pinned Gemma base. No arm initializes
 from another adapter.
@@ -215,25 +215,31 @@ W&B access, resolved schedule, step 0, GPU allocation, host memory, and
 persistent artifact creation all passed. After completion, append the finish
 time, final/best metrics and checkpoints, runtime, W&B state, and adapter hash.
 
-## Approved K14 r16 NVIDIA-LR run
+## Active K14 r16 NVIDIA-LR run
 
-Status: configured, transferred, audited, production-loader preflight passed, and ready for clean commit and launch.
+Status: running.
 
 | Field | Value |
 |---|---|
-| Planned run name | `gemma4-e2b-k14-p3-r16-2ep-nvidia-lr-v1` |
+| Run name | `gemma4-e2b-k14-p3-r16-2ep-nvidia-lr-v1` |
 | Recipe | `gemma4_e2b_k14_p3_r16_2ep_nvidia_lr.yaml` |
-| Recipe SHA-256 before launch | `254d4e481f291189d331930f5f0259aa8187bd2356692af64b9f0fe00a2b70a5` |
+| Launch source commit | `700304a7184cdb18944b5462f189aa041ab729d8` |
+| Recipe SHA-256 | `254d4e481f291189d331930f5f0259aa8187bd2356692af64b9f0fe00a2b70a5` |
+| W&B | `https://wandb.ai/dsfsi/gemma4-african-instruction/runs/zawhmm8g` |
+| Container / GPU | `gemma4-e2b-k14-p3-r16-2ep-nvidia-lr-v1` / GPU 1 |
+| Container start | `2026-08-19T10:12:53Z` |
 | Data | Accepted K14 P3 final v2, unchanged |
 | LoRA | rank 16, alpha 32, dropout 0.0 |
 | Optimizer | AdamW, peak LR `2e-4`, weight decay 0.01, betas 0.9/0.95, epsilon `1e-8` |
-| LR schedule | NVIDIA-derived cosine: initial `2e-5`, 10% warmup, minimum `2e-6` |
-| Duration | Two epochs; expected 2,116 optimizer steps |
+| LR schedule | NVIDIA-derived cosine: initial `2e-5`, peak `2e-4`, minimum `2e-6`, 211 warmup steps, 2,110 decay steps |
+| Duration | Two epochs; 2,110 optimizer steps |
 | Batch / packing | Global 8, local 1, 4,096 tokens, packing ratio 0.9 |
 | Validation / checkpoint | Every 200 optimizer steps |
 | Train / validation workers | 4 persistent / 0 non-persistent |
 | W&B name | `gemma4-e2b-k14-p3-r16-2ep-nvidia-lr-v1` |
 | Checkpoint root | `/checkpoints/gemma4-e2b-k14/p3-r16-2ep-nvidia-lr-v1` |
+| Step 0 | loss 3.0027, PPL 20.1400, grad norm 31.5640, LR `2.09e-5`, 1,113.02 tokens/s |
+| Step-0 GPU / launch host memory | 30.27 GiB / 3.90 GiB |
 
 Transfer only the accepted materialized mixture for this training run:
 
@@ -250,9 +256,15 @@ The transferred mixture contains 31 train shards and 24 validation shards. All
 manifest-relative paths, 291,691 JSONL records, conversation schemas, ownership,
 summary totals, and hashes were verified locally. The production container
 loaded the pinned processor plus all 268,251 train and 23,440 validation
-records. Commit this recipe, tests, and the completed pre-launch report; launch
-from the unchanged pinned Gemma base; and append the source commit, W&B ID,
-resolved schedule, step-0 metrics, and measured memory here.
+records before the clean prelaunch commit.
+
+The run started independently from the unchanged pinned Gemma base using the
+clean DCO-signed source commit above. Data hashes, focused tests, YAML lint, the
+production K14 loader, W&B access, resolved schedule, finite step 0, GPU
+allocation, host memory, and persistent artifact creation all passed. The P3
+mixture packs into 8,435 sequences, so two epochs resolve to 2,110 optimizer
+steps rather than the 2,116 used by K6/K10. After completion, append the finish
+time, final/best metrics and checkpoints, runtime, W&B state, and adapter hash.
 
 ## Launch and monitoring contract
 
