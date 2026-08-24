@@ -26,7 +26,7 @@ import math
 import sqlite3
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +69,7 @@ class PlanningConfig:
     """Static controls for allocation simulations."""
 
     packed_token_budget: int
+    language_token_budget: int = 0
     temperature: float = 2.0
     max_epochs: float = 4.0
     task_example_caps: Mapping[str, int] = field(default_factory=dict)
@@ -92,6 +93,7 @@ class MixtureConfig:
     tasks: tuple[str, ...]
     pools: tuple[PoolConfig, ...]
     planning: PlanningConfig
+    fixed_validation_manifest: Path | None = None
     review_samples_per_cell: int = 20
 
 
@@ -210,6 +212,10 @@ def load_config(path: Path) -> MixtureConfig:
     planning_raw = raw.get("planning", {})
     if not isinstance(planning_raw, dict):
         raise ValueError("planning must be a mapping")
+    fixed_validation_value = raw.get("fixed_validation_manifest")
+    fixed_validation_manifest = (
+        (path.parent / str(fixed_validation_value)).resolve() if fixed_validation_value is not None else None
+    )
     config = MixtureConfig(
         model_id=str(raw.get("model_id", "google/gemma-4-E2B-it")),
         max_seq_length=int(raw.get("max_seq_length", 4096)),
@@ -218,6 +224,7 @@ def load_config(path: Path) -> MixtureConfig:
         pools=tuple(pool_configs),
         planning=PlanningConfig(
             packed_token_budget=int(planning_raw["packed_token_budget"]),
+            language_token_budget=int(planning_raw.get("language_token_budget", 0)),
             temperature=float(planning_raw.get("temperature", 2.0)),
             max_epochs=float(planning_raw.get("max_epochs", 4.0)),
             task_example_caps={
@@ -236,6 +243,7 @@ def load_config(path: Path) -> MixtureConfig:
             sampling_seed=int(planning_raw.get("sampling_seed", 42)),
             minimum_cell_token_share=float(planning_raw.get("minimum_cell_token_share", 0.6)),
         ),
+        fixed_validation_manifest=fixed_validation_manifest,
         review_samples_per_cell=int(raw.get("review_samples_per_cell", 20)),
     )
     _validate_config(config)
@@ -251,6 +259,16 @@ def _validate_config(config: MixtureConfig) -> None:
         raise ValueError("pool names must be unique")
     if config.max_seq_length <= 0 or config.planning.packed_token_budget <= 0:
         raise ValueError("max_seq_length and packed_token_budget must be positive")
+    if config.planning.language_token_budget < 0:
+        raise ValueError("language_token_budget must be non-negative")
+    if config.planning.language_token_budget:
+        expected_budget = config.planning.language_token_budget * len(config.languages)
+        if config.planning.packed_token_budget != expected_budget:
+            raise ValueError(
+                f"packed_token_budget must equal language_token_budget * number of languages ({expected_budget})"
+            )
+        if not config.planning.task_token_shares:
+            raise ValueError("language_token_budget requires task_token_shares")
     if config.planning.temperature < 1 or config.planning.max_epochs <= 0:
         raise ValueError("temperature must be at least 1 and max_epochs must be positive")
     if not 0 < config.planning.default_source_family_cap <= 1:
@@ -324,6 +342,21 @@ def _record_digest(record: Mapping[str, Any]) -> bytes:
     return hashlib.blake2b(identity.encode("utf-8"), digest_size=20).digest()
 
 
+def _fixed_validation_digests(manifest_path: Path | None) -> set[bytes]:
+    if manifest_path is None:
+        return set()
+    digests: set[bytes] = set()
+    for raw in _iter_manifest_records(manifest_path):
+        record, reason = _normalize_record(raw)
+        if record is None:
+            raise ValueError(f"Invalid fixed validation record in {manifest_path}: {reason or 'invalid'}")
+        digest = _record_digest(record)
+        if digest in digests:
+            raise ValueError(f"Duplicate fixed validation record in {manifest_path}")
+        digests.add(digest)
+    return digests
+
+
 def _record_texts(record: Mapping[str, Any]) -> list[str]:
     return [str(message["content"]) for message in record["messages"]]
 
@@ -382,6 +415,7 @@ def profile_mixture(
     connection = sqlite3.connect(database_path)
     connection.execute("CREATE TABLE seen (digest BLOB PRIMARY KEY) WITHOUT ROWID")
     blocklist = BenchmarkBlocklist(benchmark_blocklist, mode="read-only") if benchmark_blocklist else None
+    fixed_validation_digests = _fixed_validation_digests(config.fixed_validation_manifest)
     stats: dict[str, CellStats] = defaultdict(CellStats)
     rejections: Counter[str] = Counter()
     sampler = _ReviewSampler(config.review_samples_per_cell)
@@ -406,6 +440,9 @@ def profile_mixture(
                     rejections[f"benchmark:{match.benchmark}"] += 1
                     continue
                 digest = _record_digest(record)
+                if digest in fixed_validation_digests:
+                    rejections["fixed_validation"] += 1
+                    continue
                 cursor = connection.execute("INSERT OR IGNORE INTO seen VALUES (?)", (digest,))
                 if cursor.rowcount == 0:
                     rejections["duplicate"] += 1
@@ -443,6 +480,10 @@ def profile_mixture(
         "languages": list(config.languages),
         "tasks": list(config.tasks),
         "pools": pools,
+        "fixed_validation_manifest": (
+            str(config.fixed_validation_manifest) if config.fixed_validation_manifest is not None else None
+        ),
+        "fixed_validation_records": len(fixed_validation_digests),
         "rejections": dict(rejections.most_common()),
         "cells": {key: value.to_dict() for key, value in sorted(stats.items())},
         "coverage": {
@@ -504,6 +545,8 @@ def build_mixture_plans(config: MixtureConfig, profile: Mapping[str, Any]) -> di
     }
     if config.planning.task_token_shares:
         plans["p3_token_stratified"] = _build_token_stratified_plan(config, aggregates)
+        if config.planning.language_token_budget:
+            plans["p4_fixed_language_tokens"] = _build_fixed_language_token_plan(config, aggregates)
     return plans
 
 
@@ -615,6 +658,82 @@ def _build_token_stratified_plan(config: MixtureConfig, aggregates: Mapping[str,
         "minimum_label_tokens": config.planning.minimum_label_tokens,
         "label_token_shortfall": max(config.planning.minimum_label_tokens - estimated_label_tokens, 0.0),
         "coverage_shortfall_tokens": shortfall_tokens,
+        "cells": cells,
+        "pool_allocations": pool_allocations,
+    }
+
+
+def _build_fixed_language_token_plan(config: MixtureConfig, aggregates: Mapping[str, Any]) -> dict[str, Any]:
+    cells: dict[str, dict[str, Any]] = {}
+    pool_allocations: dict[str, dict[str, Any]] = {}
+    language_targets: dict[str, dict[str, float]] = {}
+    estimated_tokens = 0.0
+    estimated_label_tokens = 0.0
+    coverage_shortfall_tokens = 0.0
+
+    for language in config.languages:
+        desired_targets = {
+            task: config.planning.language_token_budget * config.planning.task_token_shares[task]
+            for task in config.tasks
+        }
+        capacities = {
+            task: sum(
+                float(
+                    aggregates["by_pool_language_task"].get(f"{pool.name}|{language}|{task}", {}).get("text_tokens", 0)
+                )
+                * config.planning.max_epochs
+                for pool in config.pools
+            )
+            for task in config.tasks
+        }
+        targets = {task: min(desired_targets[task], capacities[task]) for task in config.tasks}
+        remaining = config.planning.language_token_budget - sum(targets.values())
+        residual_capacities = {task: max(capacities[task] - targets[task], 0.0) for task in config.tasks}
+        extras = _waterfill(remaining, residual_capacities, config.planning.task_token_shares)
+        for task, tokens in extras.items():
+            targets[task] += tokens
+
+        adjusted_shares = {task: targets[task] / config.planning.language_token_budget for task in config.tasks}
+        language_planning = replace(
+            config.planning,
+            packed_token_budget=config.planning.language_token_budget,
+            language_token_budget=0,
+            task_token_shares=adjusted_shares,
+            minimum_label_tokens=0,
+        )
+        language_config = replace(config, languages=(language,), planning=language_planning)
+        language_plan = _build_token_stratified_plan(language_config, aggregates)
+
+        for cell_key, values in language_plan["cells"].items():
+            task = cell_key.split("|", maxsplit=1)[1]
+            desired_target = desired_targets[task]
+            values["desired_target_tokens"] = desired_target
+            values["target_share"] = values["target_tokens"] / config.planning.language_token_budget
+            values["below_minimum_cell_share"] = (
+                values["target_tokens"] + 1e-9 < desired_target * config.planning.minimum_cell_token_share
+            )
+            cells[cell_key] = values
+        pool_allocations.update(language_plan["pool_allocations"])
+        estimated_tokens += language_plan["estimated_packed_tokens"]
+        estimated_label_tokens += language_plan["estimated_label_tokens"]
+        actual_tokens = language_plan["estimated_packed_tokens"]
+        language_shortfall = max(config.planning.language_token_budget - actual_tokens, 0.0)
+        language_targets[language] = {
+            "target_tokens": float(config.planning.language_token_budget),
+            "planned_tokens": actual_tokens,
+            "shortfall_tokens": language_shortfall,
+        }
+        coverage_shortfall_tokens += language_shortfall
+
+    return {
+        "language_token_budget": config.planning.language_token_budget,
+        "task_token_shares": dict(config.planning.task_token_shares),
+        "estimated_packed_tokens": estimated_tokens,
+        "estimated_label_tokens": estimated_label_tokens,
+        "minimum_label_tokens": config.planning.minimum_label_tokens,
+        "label_token_shortfall": max(config.planning.minimum_label_tokens - estimated_label_tokens, 0.0),
+        "coverage_shortfall_tokens": coverage_shortfall_tokens,
+        "language_targets": language_targets,
         "cells": cells,
         "pool_allocations": pool_allocations,
     }
@@ -933,6 +1052,44 @@ def _write_plans(plans: Mapping[str, Any], output_dir: Path) -> None:
             )
         for task, values in sorted(task_totals.items()):
             lines.append(f"| {task} | {values['target_records']:,.0f} | {values['estimated_packed_tokens']:,.0f} |")
+        if "language_targets" in plan:
+            lines.extend(
+                (
+                    "",
+                    "### Language budgets",
+                    "",
+                    "| Language | Target tokens | Planned tokens | Shortfall |",
+                    "|---|---:|---:|---:|",
+                )
+            )
+            for language, values in sorted(plan["language_targets"].items()):
+                lines.append(
+                    f"| {language} | {values['target_tokens']:,.0f} | "
+                    f"{values['planned_tokens']:,.0f} | {values['shortfall_tokens']:,.0f} |"
+                )
+            lines.extend(
+                (
+                    "",
+                    "### Language-task targets",
+                    "",
+                    "| Language | Task | Desired tokens | Planned tokens | Planned share | Below 60% target |",
+                    "|---|---|---:|---:|---:|---|",
+                )
+            )
+            for cell, values in sorted(plan["cells"].items()):
+                language, task = cell.split("|", maxsplit=1)
+                lines.append(
+                    f"| {language} | {task} | {values['desired_target_tokens']:,.0f} | "
+                    f"{values['target_tokens']:,.0f} | {values['target_share']:.2%} | "
+                    f"{'yes' if values['below_minimum_cell_share'] else 'no'} |"
+                )
+            lines.extend(
+                (
+                    "",
+                    f"Coverage shortfall: {plan['coverage_shortfall_tokens']:,.0f} packed tokens.",
+                    f"Supervised-token shortfall: {plan['label_token_shortfall']:,.0f} tokens.",
+                )
+            )
         fallback_cells = {cell: values for cell, values in plan["cells"].items() if "fallback_share" in values}
         if fallback_cells:
             lines.extend(

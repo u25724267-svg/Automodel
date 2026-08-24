@@ -16,6 +16,8 @@ import json
 from collections import Counter
 from pathlib import Path
 
+import pytest
+
 from tools.benchmark_contamination import BenchmarkBlocklist
 from tools.build_k6_sft_mixture import _token_balanced_targets, build_mixture
 from tools.profile_sft_mixture import TokenCounts
@@ -223,6 +225,96 @@ def test_build_mixture_balances_translation_directions(tmp_path: Path) -> None:
     strata = summary["train_allocations"]["source|hau|translation"]["strata"]
     assert strata["direction:eng-hau"]["records"] == 3
     assert strata["direction:hau-eng"]["records"] == 3
+
+
+def test_build_mixture_accepts_p4_and_rejects_language_shortfall(tmp_path: Path) -> None:
+    manifest = _write_manifest(tmp_path, "source", [_row(0, "source"), _row(1, "source")])
+    config = _config(tmp_path, [("source", manifest)])
+    config_data = json.loads(config.read_text(encoding="utf-8"))
+    config_data["planning"]["language_token_budget"] = 1_000
+    config_data["planning"]["task_token_shares"] = {"classification": 1.0}
+    config.write_text(json.dumps(config_data), encoding="utf-8")
+    plan = _plan(tmp_path, {"source|hau|classification": 2.0}, target_records=2.0)
+    plan_data = json.loads(plan.read_text(encoding="utf-8"))
+    plan_data["p4_fixed_language_tokens"] = plan_data.pop("p2_quality_constrained")
+    plan_data["p4_fixed_language_tokens"]["coverage_shortfall_tokens"] = 0.0
+    plan.write_text(json.dumps(plan_data), encoding="utf-8")
+
+    output = tmp_path / "mixture"
+    summary = build_mixture(
+        config_path=config,
+        plan_path=plan,
+        policy="p4_fixed_language_tokens",
+        benchmark_blocklist=_blocklist(tmp_path / "benchmarks.sqlite3"),
+        output_dir=output,
+        validation_records_per_pool=0,
+        token_counter=_counter,
+    )
+
+    assert summary["policy"] == "p4_fixed_language_tokens"
+    assert summary["train_total_records"] == 2
+
+    shortfall_plan = tmp_path / "shortfall-plans.json"
+    plan_data["p4_fixed_language_tokens"]["coverage_shortfall_tokens"] = 1.0
+    shortfall_plan.write_text(json.dumps(plan_data), encoding="utf-8")
+    with pytest.raises(ValueError, match="uncovered packed tokens"):
+        build_mixture(
+            config_path=config,
+            plan_path=shortfall_plan,
+            policy="p4_fixed_language_tokens",
+            benchmark_blocklist=_blocklist(tmp_path / "shortfall-benchmarks.sqlite3"),
+            output_dir=tmp_path / "shortfall-mixture",
+            validation_records_per_pool=0,
+            token_counter=_counter,
+        )
+
+
+def test_build_mixture_preserves_fixed_validation_and_excludes_it_from_train(tmp_path: Path) -> None:
+    reserved = _row(0, "source")
+    reserved_counts = _counter(reserved["messages"])
+    reserved["_prompt_tokens"] = reserved_counts.prompt
+    reserved["_label_tokens"] = reserved_counts.label
+    reserved["_text_tokens"] = reserved_counts.text
+    train_manifest = _write_manifest(
+        tmp_path,
+        "source",
+        [reserved, _row(1, "source"), _row(2, "source")],
+    )
+    validation_manifest = _write_manifest(tmp_path / "fixed", "validation", [reserved])
+    config = _config(tmp_path, [("source", train_manifest)])
+    config_data = json.loads(config.read_text(encoding="utf-8"))
+    config_data["fixed_validation_manifest"] = str(validation_manifest)
+    config_data["planning"]["language_token_budget"] = 1_000
+    config_data["planning"]["task_token_shares"] = {"classification": 1.0}
+    config.write_text(json.dumps(config_data), encoding="utf-8")
+    plan = _plan(tmp_path, {"source|hau|classification": 2.0}, target_records=2.0)
+    plan_data = json.loads(plan.read_text(encoding="utf-8"))
+    plan_data["p4_fixed_language_tokens"] = plan_data.pop("p2_quality_constrained")
+    plan_data["p4_fixed_language_tokens"]["coverage_shortfall_tokens"] = 0.0
+    plan.write_text(json.dumps(plan_data), encoding="utf-8")
+
+    output = tmp_path / "mixture"
+    summary = build_mixture(
+        config_path=config,
+        plan_path=plan,
+        policy="p4_fixed_language_tokens",
+        benchmark_blocklist=_blocklist(tmp_path / "benchmarks.sqlite3"),
+        output_dir=output,
+        validation_records_per_pool=0,
+        token_counter=_counter,
+    )
+
+    train_rows = [json.loads(line) for path in (output / "processed" / "train").glob("*.jsonl") for line in path.open()]
+    validation_rows = [json.loads(line) for line in (output / "data.jsonl").open()]
+    train_messages = {json.dumps(row["messages"], sort_keys=True) for row in train_rows}
+    validation_messages = {json.dumps(row["messages"], sort_keys=True) for row in validation_rows}
+    assert train_messages.isdisjoint(validation_messages)
+    assert summary["train_total_records"] == 2
+    assert summary["validation_total_records"] == 1
+    assert summary["rejections"]["fixed_validation"] == 1
+    assert summary["fixed_validation_manifest"] == str(validation_manifest.resolve())
+    assert (output / "validation_meta.json").read_bytes() == validation_manifest.read_bytes()
+    assert (output / "data.jsonl").read_bytes() == (validation_manifest.parent / "data.jsonl").read_bytes()
 
 
 def test_token_balanced_targets_avoid_length_skew() -> None:

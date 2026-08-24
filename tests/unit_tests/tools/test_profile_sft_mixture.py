@@ -23,6 +23,7 @@ from tools.profile_sft_mixture import (
     PlanningConfig,
     PoolConfig,
     TokenCounts,
+    _write_plans,
     build_mixture_plans,
     load_config,
     profile_mixture,
@@ -116,6 +117,28 @@ def test_profile_reports_tokens_deduplication_and_overlength(tmp_path: Path) -> 
     assert len((output_dir / "review_samples.jsonl").read_text(encoding="utf-8").splitlines()) == 3
     with (output_dir / "cells.csv").open(encoding="utf-8") as handle:
         assert len(list(csv.DictReader(handle))) == 3
+
+
+def test_profile_excludes_fixed_validation_records(tmp_path: Path) -> None:
+    reserved = _row(1)
+    train_manifest = _write_manifest(tmp_path, "train", [reserved, _row(2)])
+    validation_manifest = _write_manifest(tmp_path, "validation", [reserved])
+    config = MixtureConfig(
+        model_id="test-tokenizer",
+        max_seq_length=10,
+        languages=("hau",),
+        tasks=("classification",),
+        pools=(PoolConfig("train", train_manifest, "train", "revision", "Apache-2.0", "human"),),
+        planning=PlanningConfig(packed_token_budget=10),
+        fixed_validation_manifest=validation_manifest,
+    )
+
+    profile = profile_mixture(config, token_counter=_counter, output_dir=tmp_path / "profile")
+
+    assert profile["fixed_validation_manifest"] == str(validation_manifest)
+    assert profile["fixed_validation_records"] == 1
+    assert profile["rejections"]["fixed_validation"] == 1
+    assert profile["cells"]["train|hau|classification|afrihate"]["records"] == 1
 
 
 def test_plans_use_capped_examples_and_afriinstruct_anchor(tmp_path: Path) -> None:
@@ -283,6 +306,120 @@ def test_token_stratified_plan_redistributes_low_capacity_cells(tmp_path: Path) 
     assert plan["coverage_shortfall_tokens"] == pytest.approx(0)
     assert plan["cells"]["hau|classification"]["target_tokens"] == pytest.approx(100)
     assert plan["cells"]["yor|classification"]["target_tokens"] == pytest.approx(900)
+
+
+def test_fixed_language_plan_redistributes_only_within_language(tmp_path: Path) -> None:
+    new_manifest = _write_manifest(tmp_path, "new", [])
+    afri_manifest = _write_manifest(tmp_path, "afri", [])
+    base = _config(tmp_path, new_manifest, afri_manifest)
+    config = MixtureConfig(
+        model_id=base.model_id,
+        max_seq_length=base.max_seq_length,
+        languages=("hau", "yor"),
+        tasks=("classification", "translation"),
+        pools=base.pools,
+        planning=PlanningConfig(
+            packed_token_budget=1_000,
+            language_token_budget=500,
+            max_epochs=1,
+            task_token_shares={"classification": 0.6, "translation": 0.4},
+            minimum_cell_token_share=0.6,
+        ),
+    )
+    profile = {
+        "cells": {
+            "new|hau|classification|small": {"records": 10, "text_tokens": 100, "label_tokens": 20},
+            "new|hau|translation|large": {"records": 100, "text_tokens": 1_000, "label_tokens": 500},
+            "new|yor|classification|large": {"records": 100, "text_tokens": 1_000, "label_tokens": 200},
+            "new|yor|translation|large": {"records": 100, "text_tokens": 1_000, "label_tokens": 500},
+        }
+    }
+
+    plans = build_mixture_plans(config, profile)
+    plan = plans["p4_fixed_language_tokens"]
+
+    assert plan["estimated_packed_tokens"] == pytest.approx(1_000)
+    assert plan["coverage_shortfall_tokens"] == pytest.approx(0)
+    assert plan["language_targets"]["hau"] == pytest.approx(
+        {"target_tokens": 500, "planned_tokens": 500, "shortfall_tokens": 0}
+    )
+    assert plan["language_targets"]["yor"] == pytest.approx(
+        {"target_tokens": 500, "planned_tokens": 500, "shortfall_tokens": 0}
+    )
+    assert plan["cells"]["hau|classification"]["target_tokens"] == pytest.approx(100)
+    assert plan["cells"]["hau|translation"]["target_tokens"] == pytest.approx(400)
+    assert plan["cells"]["yor|classification"]["target_tokens"] == pytest.approx(300)
+    assert plan["cells"]["yor|translation"]["target_tokens"] == pytest.approx(200)
+    assert plan["cells"]["hau|classification"]["below_minimum_cell_share"] is True
+    assert plan["cells"]["hau|classification"]["desired_target_tokens"] == pytest.approx(300)
+    assert plans["p3_token_stratified"]["cells"]["hau|classification"]["target_tokens"] == pytest.approx(100)
+    assert plans["p3_token_stratified"]["cells"]["yor|classification"]["target_tokens"] == pytest.approx(500)
+
+    output_dir = tmp_path / "plans"
+    _write_plans({"p4_fixed_language_tokens": plan}, output_dir)
+    report = (output_dir / "plans.md").read_text(encoding="utf-8")
+    assert "### Language budgets" in report
+    assert "| hau | 500 | 500 | 0 |" in report
+    assert "| hau | classification | 300 | 100 | 20.00% | yes |" in report
+    assert "Coverage shortfall: 0 packed tokens." in report
+
+
+def test_fixed_language_plan_reports_language_capacity_shortfall(tmp_path: Path) -> None:
+    new_manifest = _write_manifest(tmp_path, "new", [])
+    afri_manifest = _write_manifest(tmp_path, "afri", [])
+    base = _config(tmp_path, new_manifest, afri_manifest)
+    config = MixtureConfig(
+        model_id=base.model_id,
+        max_seq_length=base.max_seq_length,
+        languages=("hau",),
+        tasks=("classification", "translation"),
+        pools=base.pools,
+        planning=PlanningConfig(
+            packed_token_budget=500,
+            language_token_budget=500,
+            max_epochs=1,
+            task_token_shares={"classification": 0.6, "translation": 0.4},
+        ),
+    )
+    profile = {
+        "cells": {
+            "new|hau|classification|small": {"records": 10, "text_tokens": 100, "label_tokens": 20},
+            "new|hau|translation|small": {"records": 20, "text_tokens": 200, "label_tokens": 100},
+        }
+    }
+
+    plan = build_mixture_plans(config, profile)["p4_fixed_language_tokens"]
+
+    assert plan["estimated_packed_tokens"] == pytest.approx(300)
+    assert plan["coverage_shortfall_tokens"] == pytest.approx(200)
+    assert plan["language_targets"]["hau"] == pytest.approx(
+        {"target_tokens": 500, "planned_tokens": 300, "shortfall_tokens": 200}
+    )
+
+
+def test_load_config_rejects_inconsistent_language_token_budget(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+version: 1
+languages: [hau, yor]
+tasks: [classification]
+pools:
+  - name: source
+    manifest: train_meta.json
+    revision: abc123
+    license: Apache-2.0
+    quality_tier: human
+planning:
+  packed_token_budget: 999
+  language_token_budget: 500
+  task_token_shares: {classification: 1.0}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="packed_token_budget must equal language_token_budget"):
+        load_config(config_path)
 
 
 def test_load_config_rejects_unknown_quality_tier(tmp_path: Path) -> None:

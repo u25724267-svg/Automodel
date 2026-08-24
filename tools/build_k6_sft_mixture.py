@@ -21,6 +21,7 @@ import hashlib
 import json
 import logging
 import math
+import shutil
 import sqlite3
 from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping
@@ -33,6 +34,7 @@ if __package__:
         QUALITY_WEIGHTS,
         MixtureConfig,
         TokenCounts,
+        _fixed_validation_digests,
         _iter_manifest_records,
         _make_token_counter,
         _normalize_record,
@@ -46,6 +48,7 @@ else:
         QUALITY_WEIGHTS,
         MixtureConfig,
         TokenCounts,
+        _fixed_validation_digests,
         _iter_manifest_records,
         _make_token_counter,
         _normalize_record,
@@ -150,6 +153,7 @@ def _build_candidates(
     )
     rejections: Counter[str] = Counter()
     available: dict[str, Counter[str]] = defaultdict(Counter)
+    fixed_validation_digests = _fixed_validation_digests(config.fixed_validation_manifest)
     with BenchmarkBlocklist(benchmark_blocklist, mode="read-only") as blocklist:
         ordered_pools = sorted(config.pools, key=lambda pool: (-QUALITY_WEIGHTS[pool.quality_tier], pool.name))
         for pool in ordered_pools:
@@ -166,6 +170,10 @@ def _build_candidates(
                 if match is not None:
                     rejections[f"benchmark:{match.benchmark}"] += 1
                     continue
+                digest = _record_digest(record)
+                if digest in fixed_validation_digests:
+                    rejections["fixed_validation"] += 1
+                    continue
                 counts = token_counter(record["messages"])
                 if counts.label <= 0 or counts.text <= 0 or counts.prompt < 0:
                     rejections["invalid_token_counts"] += 1
@@ -178,7 +186,6 @@ def _build_candidates(
                 payload_record["_label_tokens"] = counts.label
                 payload_record["_text_tokens"] = counts.text
                 payload = json.dumps(payload_record, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-                digest = _record_digest(record)
                 cursor = connection.execute(
                     "INSERT OR IGNORE INTO candidates VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
                     (
@@ -420,6 +427,52 @@ def _select_validation_records(
     return selected, total_records, total_tokens
 
 
+def _copy_fixed_validation(
+    manifest_path: Path,
+    output_dir: Path,
+) -> tuple[dict[str, dict[str, int]], int, int]:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError(f"Fixed validation manifest must be a mapping: {manifest_path}")
+    source_root = manifest_path.parent.resolve()
+    output_root = output_dir.resolve()
+    selected: dict[str, dict[str, int]] = defaultdict(lambda: {"records": 0, "tokens": 0})
+    total_records = 0
+    total_tokens = 0
+    copied_paths: set[Path] = set()
+    for name, entry in sorted(manifest.items()):
+        relative_path = Path(entry["file_name"])
+        if relative_path.is_absolute():
+            raise ValueError(f"Fixed validation shard path must be relative: {relative_path}")
+        source = (source_root / relative_path).resolve()
+        destination = (output_root / relative_path).resolve()
+        if source_root not in source.parents or output_root not in destination.parents:
+            raise ValueError(f"Fixed validation shard escapes its root: {relative_path}")
+        if not source.is_file():
+            raise FileNotFoundError(f"Fixed validation shard not found: {source}")
+        if destination in copied_paths:
+            raise ValueError(f"Duplicate fixed validation shard path: {relative_path}")
+        copied_paths.add(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+
+        pool = name.rsplit("-", maxsplit=1)[0]
+        with source.open(encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                tokens = row.get("_text_tokens")
+                if not isinstance(tokens, int) or tokens <= 0:
+                    raise ValueError(f"Invalid _text_tokens in fixed validation shard {source}:{line_number}")
+                selected[pool]["records"] += 1
+                selected[pool]["tokens"] += tokens
+                total_records += 1
+                total_tokens += tokens
+    shutil.copy2(manifest_path, output_dir / "validation_meta.json")
+    return dict(selected), total_records, total_tokens
+
+
 def build_mixture(
     *,
     config_path: Path,
@@ -438,6 +491,8 @@ def build_mixture(
         raise ValueError(f"Unknown plan policy: {policy}")
     if validation_records_per_pool < 0 or shard_size <= 0:
         raise ValueError("validation_records_per_pool must be non-negative and shard_size must be positive")
+    if config.fixed_validation_manifest is not None and validation_records_per_pool != 0:
+        raise ValueError("validation_records_per_pool must be 0 when fixed_validation_manifest is configured")
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(f"Output directory is not empty: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -466,18 +521,25 @@ def build_mixture(
                 f"Materialized {train_label_tokens} label tokens; "
                 f"requires at least {config.planning.minimum_label_tokens}"
             )
-        validation, validation_records, validation_tokens = _select_validation_records(
-            output_dir,
-            validation_records_per_pool,
-            writer,
-            [pool.name for pool in config.pools],
-        )
+        if config.fixed_validation_manifest is not None:
+            validation, validation_records, validation_tokens = _copy_fixed_validation(
+                config.fixed_validation_manifest,
+                output_dir,
+            )
+        else:
+            validation, validation_records, validation_tokens = _select_validation_records(
+                output_dir,
+                validation_records_per_pool,
+                writer,
+                [pool.name for pool in config.pools],
+            )
     finally:
         writer.close()
         database_path.unlink(missing_ok=True)
 
     _write_manifest(output_dir, "train", writer.manifests["train"])
-    _write_manifest(output_dir, "validation", writer.manifests["validation"])
+    if config.fixed_validation_manifest is None:
+        _write_manifest(output_dir, "validation", writer.manifests["validation"])
     planned_tokens = float(plans[policy]["estimated_packed_tokens"])
     summary = {
         "policy": policy,
@@ -490,6 +552,9 @@ def build_mixture(
         "train_token_deviation": train_tokens - planned_tokens,
         "validation_total_records": validation_records,
         "validation_total_tokens": validation_tokens,
+        "fixed_validation_manifest": (
+            str(config.fixed_validation_manifest) if config.fixed_validation_manifest is not None else None
+        ),
         "train_allocations": train,
         "validation_per_pool": validation,
         **candidate_summary,
