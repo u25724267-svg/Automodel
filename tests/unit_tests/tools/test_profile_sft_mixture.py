@@ -29,6 +29,8 @@ from tools.profile_sft_mixture import (
     profile_mixture,
 )
 
+PROFILE_CONFIG_DIR = Path(__file__).resolve().parents[3] / "examples" / "vlm_finetune" / "gemma4" / "data"
+
 
 def _write_manifest(root: Path, name: str, rows: list[dict[str, object]]) -> Path:
     shard = root / f"{name}.jsonl"
@@ -420,6 +422,52 @@ planning:
 
     with pytest.raises(ValueError, match="packed_token_budget must equal language_token_budget"):
         load_config(config_path)
+
+
+@pytest.mark.parametrize(
+    ("filename", "language_count", "packed_budget", "minimum_labels", "validation_manifest"),
+    (
+        (
+            "k10_p4_5m_per_language_profile.yaml",
+            10,
+            50_000_000,
+            16_585_053,
+            "/data/gemma4-k10/mixture-p2-v1/validation_meta.json",
+        ),
+        (
+            "k14_p4_5m_per_language_profile.yaml",
+            14,
+            70_000_000,
+            23_219_074,
+            "/data/gemma4-k14/mixture-p3-final-v2/validation_meta.json",
+        ),
+    ),
+)
+def test_fixed_language_profile_configs_use_unified_registry(
+    filename: str,
+    language_count: int,
+    packed_budget: int,
+    minimum_labels: int,
+    validation_manifest: str,
+) -> None:
+    config = load_config(PROFILE_CONFIG_DIR / filename)
+
+    assert len(config.languages) == language_count
+    assert config.planning.packed_token_budget == packed_budget
+    assert config.planning.language_token_budget == 5_000_000
+    assert config.planning.minimum_label_tokens == minimum_labels
+    assert config.fixed_validation_manifest == Path(validation_manifest)
+    assert config.planning.max_epochs == 4.0
+    assert config.planning.task_token_shares == {
+        "instruction": 0.33,
+        "qa": 0.15,
+        "translation": 0.10,
+        "classification": 0.17,
+        "ner": 0.25,
+    }
+    pool_names = {pool.name for pool in config.pools}
+    assert "finerweb_k14" in pool_names
+    assert "wolof_sentiment_filtered" in pool_names
 
 
 def test_load_config_rejects_unknown_quality_tier(tmp_path: Path) -> None:
