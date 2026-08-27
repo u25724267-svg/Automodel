@@ -1,18 +1,22 @@
 # K-series fixed per-language token-budget plan
 
-Status: composition analysis, P4 planning, and fixed-validation reservation
-implemented and tested; source-profile transfer complete; exact profiling,
-capacity review, and materialization pending. No training run in this phase is
-approved for launch.
+Status: P4 planning, deterministic profiling, capacity review, exact
+materialization, and exhaustive audits are complete for K10 and K14. See
+[KSERIES_FIXED_LANGUAGE_DATA_REPRODUCTION.md](KSERIES_FIXED_LANGUAGE_DATA_REPRODUCTION.md)
+for the saved wrapper, accepted artifacts, hashes, and full reproduction
+procedure. No training run in this phase is approved for launch.
 
 ## Research question
 
 The original staircase fixed total materialized compute near 31.35M tokens, so
-per-language exposure fell as breadth increased. This phase fixes consumed
-training exposure at exactly 5,000,000 packed tokens per African language while
-allowing total compute to scale with breadth.
+per-language exposure fell as breadth increased. This phase fixes materialized
+pre-shift processor tokens at exactly 5,000,000 per African language while
+allowing total compute to scale with breadth. One epoch consumes every selected
+record once. The VLM causal shift removes one model-input token per record; on
+2026-08-27 the resulting 4.9175M-4.9694M per-language model-input range was
+explicitly accepted without rematerialization.
 
-| Arm | Languages | Materialized and consumed target | Epochs |
+| Arm | Languages | Materialized pre-shift target | Epochs |
 |---|---:|---:|---:|
 | K10 | 10 | 50,000,000 packed tokens | 1 |
 | K14 | 14 | 70,000,000 packed tokens | 1 |
@@ -327,13 +331,13 @@ digest and mounted historical paths from the two-epoch run report.
 11. Load both manifests through the production VLM builder.
 12. Review and approve final composition before creating training recipes.
 
-## Planned artifacts and names
+## Accepted artifacts and planned run names
 
 Use new versioned roots; never overwrite accepted P2/P3 mixtures.
 
-| Arm | Planned mixture root | Planned run name |
+| Arm | Accepted mixture root | Planned run name |
 |---|---|---|
-| K10 | `/data/gemma4-k10/mixture-p4-5m-per-language-v1` | `gemma4-e2b-k10-p4-5m-per-language-r16-1ep-v1` |
+| K10 | `/data/gemma4-k10/mixture-p4-5m-per-language-v2` | `gemma4-e2b-k10-p4-5m-per-language-r16-1ep-v1` |
 | K14 | `/data/gemma4-k14/mixture-p4-5m-per-language-v1` | `gemma4-e2b-k14-p4-5m-per-language-r16-1ep-v1` |
 
 Both runs use `dsfsi/gemma4-african-instruction`, with distinct names, groups,

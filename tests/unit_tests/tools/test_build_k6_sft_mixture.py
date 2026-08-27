@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from tools.benchmark_contamination import BenchmarkBlocklist
-from tools.build_k6_sft_mixture import _token_balanced_targets, build_mixture
+from tools.build_k6_sft_mixture import _find_exact_token_subset, _token_balanced_targets, build_mixture
 from tools.profile_sft_mixture import TokenCounts
 
 
@@ -228,15 +228,21 @@ def test_build_mixture_balances_translation_directions(tmp_path: Path) -> None:
 
 
 def test_build_mixture_accepts_p4_and_rejects_language_shortfall(tmp_path: Path) -> None:
-    manifest = _write_manifest(tmp_path, "source", [_row(0, "source"), _row(1, "source")])
+    manifest = _write_manifest(tmp_path, "source", [_row(0, "source"), _row(1, "source"), _row(2, "source")])
     config = _config(tmp_path, [("source", manifest)])
     config_data = json.loads(config.read_text(encoding="utf-8"))
-    config_data["planning"]["language_token_budget"] = 1_000
+    config_data["planning"]["packed_token_budget"] = 12
+    config_data["planning"]["language_token_budget"] = 12
     config_data["planning"]["task_token_shares"] = {"classification": 1.0}
     config.write_text(json.dumps(config_data), encoding="utf-8")
     plan = _plan(tmp_path, {"source|hau|classification": 2.0}, target_records=2.0)
     plan_data = json.loads(plan.read_text(encoding="utf-8"))
     plan_data["p4_fixed_language_tokens"] = plan_data.pop("p2_quality_constrained")
+    plan_data["p4_fixed_language_tokens"]["estimated_packed_tokens"] = 12.0
+    plan_data["p4_fixed_language_tokens"]["language_targets"] = {
+        "hau": {"target_tokens": 12.0, "planned_tokens": 12.0, "shortfall_tokens": 0.0}
+    }
+    plan_data["p4_fixed_language_tokens"]["pool_allocations"]["source|hau|classification"]["target_tokens"] = 12.0
     plan_data["p4_fixed_language_tokens"]["coverage_shortfall_tokens"] = 0.0
     plan.write_text(json.dumps(plan_data), encoding="utf-8")
 
@@ -252,7 +258,16 @@ def test_build_mixture_accepts_p4_and_rejects_language_shortfall(tmp_path: Path)
     )
 
     assert summary["policy"] == "p4_fixed_language_tokens"
-    assert summary["train_total_records"] == 2
+    assert summary["train_total_records"] == 3
+    assert summary["train_total_tokens"] == 12
+    assert summary["train_token_deviation"] == 0
+    assert summary["language_reconciliation"]["hau"] == {
+        "target_tokens": 12,
+        "before_tokens": 8,
+        "added_records": 1,
+        "removed_records": 0,
+        "after_tokens": 12,
+    }
 
     shortfall_plan = tmp_path / "shortfall-plans.json"
     plan_data["p4_fixed_language_tokens"]["coverage_shortfall_tokens"] = 1.0
@@ -284,12 +299,18 @@ def test_build_mixture_preserves_fixed_validation_and_excludes_it_from_train(tmp
     config = _config(tmp_path, [("source", train_manifest)])
     config_data = json.loads(config.read_text(encoding="utf-8"))
     config_data["fixed_validation_manifest"] = str(validation_manifest)
-    config_data["planning"]["language_token_budget"] = 1_000
+    config_data["planning"]["packed_token_budget"] = 8
+    config_data["planning"]["language_token_budget"] = 8
     config_data["planning"]["task_token_shares"] = {"classification": 1.0}
     config.write_text(json.dumps(config_data), encoding="utf-8")
     plan = _plan(tmp_path, {"source|hau|classification": 2.0}, target_records=2.0)
     plan_data = json.loads(plan.read_text(encoding="utf-8"))
     plan_data["p4_fixed_language_tokens"] = plan_data.pop("p2_quality_constrained")
+    plan_data["p4_fixed_language_tokens"]["estimated_packed_tokens"] = 8.0
+    plan_data["p4_fixed_language_tokens"]["language_targets"] = {
+        "hau": {"target_tokens": 8.0, "planned_tokens": 8.0, "shortfall_tokens": 0.0}
+    }
+    plan_data["p4_fixed_language_tokens"]["pool_allocations"]["source|hau|classification"]["target_tokens"] = 8.0
     plan_data["p4_fixed_language_tokens"]["coverage_shortfall_tokens"] = 0.0
     plan.write_text(json.dumps(plan_data), encoding="utf-8")
 
@@ -317,6 +338,77 @@ def test_build_mixture_preserves_fixed_validation_and_excludes_it_from_train(tmp
     assert (output / "data.jsonl").read_bytes() == (validation_manifest.parent / "data.jsonl").read_bytes()
 
 
+def test_build_mixture_rejects_unrealizable_fixed_language_budget(tmp_path: Path) -> None:
+    manifest = _write_manifest(tmp_path, "source", [_row(0, "source"), _row(1, "source"), _row(2, "source")])
+    config = _config(tmp_path, [("source", manifest)])
+    config_data = json.loads(config.read_text(encoding="utf-8"))
+    config_data["planning"]["packed_token_budget"] = 10
+    config_data["planning"]["language_token_budget"] = 10
+    config_data["planning"]["task_token_shares"] = {"classification": 1.0}
+    config.write_text(json.dumps(config_data), encoding="utf-8")
+    plan = _plan(tmp_path, {"source|hau|classification": 2.0}, target_records=2.0)
+    plan_data = json.loads(plan.read_text(encoding="utf-8"))
+    plan_data["p4_fixed_language_tokens"] = plan_data.pop("p2_quality_constrained")
+    plan_data["p4_fixed_language_tokens"]["estimated_packed_tokens"] = 10.0
+    plan_data["p4_fixed_language_tokens"]["language_targets"] = {
+        "hau": {"target_tokens": 10.0, "planned_tokens": 10.0, "shortfall_tokens": 0.0}
+    }
+    plan_data["p4_fixed_language_tokens"]["pool_allocations"]["source|hau|classification"]["target_tokens"] = 10.0
+    plan_data["p4_fixed_language_tokens"]["coverage_shortfall_tokens"] = 0.0
+    plan.write_text(json.dumps(plan_data), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Cannot reconcile hau from 8 to 10 tokens"):
+        build_mixture(
+            config_path=config,
+            plan_path=plan,
+            policy="p4_fixed_language_tokens",
+            benchmark_blocklist=_blocklist(tmp_path / "benchmarks.sqlite3"),
+            output_dir=tmp_path / "mixture",
+            validation_records_per_pool=0,
+            token_counter=_counter,
+        )
+
+
+def test_build_mixture_removes_records_to_reconcile_fixed_language_budget(tmp_path: Path) -> None:
+    manifest = _write_manifest(tmp_path, "source", [_row(0, "source"), _row(1, "source"), _row(2, "source")])
+    config = _config(tmp_path, [("source", manifest)])
+    config_data = json.loads(config.read_text(encoding="utf-8"))
+    config_data["planning"]["packed_token_budget"] = 8
+    config_data["planning"]["language_token_budget"] = 8
+    config_data["planning"]["task_token_shares"] = {"classification": 1.0}
+    config.write_text(json.dumps(config_data), encoding="utf-8")
+    plan = _plan(tmp_path, {"source|hau|classification": 3.0}, target_records=3.0)
+    plan_data = json.loads(plan.read_text(encoding="utf-8"))
+    plan_data["p4_fixed_language_tokens"] = plan_data.pop("p2_quality_constrained")
+    plan_data["p4_fixed_language_tokens"]["estimated_packed_tokens"] = 8.0
+    plan_data["p4_fixed_language_tokens"]["language_targets"] = {
+        "hau": {"target_tokens": 8.0, "planned_tokens": 8.0, "shortfall_tokens": 0.0}
+    }
+    plan_data["p4_fixed_language_tokens"]["pool_allocations"]["source|hau|classification"]["target_tokens"] = 8.0
+    plan_data["p4_fixed_language_tokens"]["coverage_shortfall_tokens"] = 0.0
+    plan.write_text(json.dumps(plan_data), encoding="utf-8")
+
+    summary = build_mixture(
+        config_path=config,
+        plan_path=plan,
+        policy="p4_fixed_language_tokens",
+        benchmark_blocklist=_blocklist(tmp_path / "benchmarks.sqlite3"),
+        output_dir=tmp_path / "mixture",
+        validation_records_per_pool=0,
+        token_counter=_counter,
+    )
+
+    assert summary["train_total_records"] == 2
+    assert summary["train_total_tokens"] == 8
+    assert summary["language_reconciliation"]["hau"] == {
+        "target_tokens": 8,
+        "before_tokens": 12,
+        "added_records": 0,
+        "removed_records": 1,
+        "after_tokens": 8,
+    }
+
+
 def test_token_balanced_targets_avoid_length_skew() -> None:
     candidates = {
         "long": [(b"a", 100, 10, "{}") for _ in range(10)],
@@ -326,3 +418,10 @@ def test_token_balanced_targets_avoid_length_skew() -> None:
     targets = _token_balanced_targets(10, candidates, max_epochs=1)
 
     assert targets == {"long": 1, "short": 9}
+
+
+def test_find_exact_token_subset_reconstructs_or_rejects_target() -> None:
+    candidates = [("first", 7), ("second", 11), ("third", 13), ("fourth", 17)]
+
+    assert _find_exact_token_subset(candidates, 31) == ["first", "second", "third"]
+    assert _find_exact_token_subset(candidates, 5) is None

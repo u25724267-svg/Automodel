@@ -24,9 +24,9 @@ import math
 import shutil
 import sqlite3
 from collections import Counter, defaultdict
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, TextIO, TypeVar
 
 if __package__:
     from tools.benchmark_contamination import BenchmarkBlocklist
@@ -60,6 +60,45 @@ else:
 logger = logging.getLogger(__name__)
 
 TokenCounter = Callable[[list[dict[str, str]]], TokenCounts]
+SubsetItem = TypeVar("SubsetItem")
+
+
+def _find_exact_token_subset(
+    candidates: Iterable[tuple[SubsetItem, int]], target_tokens: int
+) -> list[SubsetItem] | None:
+    if target_tokens < 0:
+        raise ValueError("target_tokens must be non-negative")
+    if target_tokens == 0:
+        return []
+
+    reachable = 1
+    mask = (1 << (target_tokens + 1)) - 1
+    transitions: list[tuple[SubsetItem, int, int]] = []
+    for item, tokens in candidates:
+        if tokens <= 0 or tokens > target_tokens:
+            continue
+        added = ((reachable << tokens) & mask) & ~reachable
+        if not added:
+            continue
+        transitions.append((item, tokens, added))
+        reachable |= added
+        if reachable & (1 << target_tokens):
+            break
+    else:
+        return None
+
+    selected: list[SubsetItem] = []
+    remaining = target_tokens
+    for item, tokens, added in reversed(transitions):
+        if added & (1 << remaining):
+            selected.append(item)
+            remaining -= tokens
+            if remaining == 0:
+                break
+    if remaining:
+        raise RuntimeError(f"Could not reconstruct exact {target_tokens}-token subset")
+    selected.reverse()
+    return selected
 
 
 class _OutputWriter:
@@ -325,15 +364,12 @@ def _weighted_record_targets(
 def _select_train_records(
     output_dir: Path,
     policy_plan: Mapping[str, Any],
-    writer: _OutputWriter,
     max_epochs: float,
-) -> tuple[dict[str, dict[str, Any]], int, int, int]:
+) -> None:
     connection = sqlite3.connect(output_dir / ".mixture.sqlite3")
-    selected: dict[str, dict[str, Any]] = {}
-    total_records = 0
-    total_tokens = 0
-    total_label_tokens = 0
     try:
+        connection.execute("CREATE TABLE selections (sequence INTEGER PRIMARY KEY AUTOINCREMENT, digest BLOB NOT NULL)")
+        connection.execute("CREATE INDEX selections_digest ON selections (digest)")
         for allocation_key, target_records in sorted(_round_allocations(policy_plan).items()):
             if target_records <= 0:
                 continue
@@ -347,11 +383,7 @@ def _select_train_records(
             for digest, stratum, tokens, labels, payload in rows:
                 by_stratum[stratum].append((digest, tokens, labels, payload))
             stratum_targets = _token_balanced_targets(target_records, by_stratum, max_epochs)
-            allocation_tokens = 0
-            allocation_label_tokens = 0
             unique_digests: set[bytes] = set()
-            max_repetitions = 0
-            realized_strata = {}
             for stratum, stratum_target in sorted(stratum_targets.items()):
                 candidates = by_stratum.get(stratum, [])
                 capacity = math.floor(len(candidates) * max_epochs + 1e-9)
@@ -360,43 +392,243 @@ def _select_train_records(
                         f"Pool {pool} provides capacity {capacity} for {language}|{task}|{stratum}; "
                         f"requested {stratum_target}"
                     )
-                repetitions: Counter[bytes] = Counter()
-                stratum_tokens = 0
-                stratum_label_tokens = 0
+                selection_digests = []
                 for index in range(stratum_target):
-                    digest, tokens, labels, payload = candidates[index % len(candidates)]
-                    writer.write("train", pool, payload)
-                    repetitions[digest] += 1
+                    digest, _, _, _ = candidates[index % len(candidates)]
+                    selection_digests.append((digest,))
                     unique_digests.add(digest)
-                    stratum_tokens += tokens
-                    stratum_label_tokens += labels
-                max_repetitions = max(max_repetitions, max(repetitions.values(), default=0))
-                allocation_tokens += stratum_tokens
-                allocation_label_tokens += stratum_label_tokens
-                realized_strata[stratum] = {
-                    "records": stratum_target,
-                    "tokens": stratum_tokens,
-                    "label_tokens": stratum_label_tokens,
-                }
+                connection.executemany("INSERT INTO selections (digest) VALUES (?)", selection_digests)
             connection.executemany(
                 "UPDATE candidates SET selected = 1 WHERE digest = ?",
                 ((digest,) for digest in unique_digests),
             )
-            selected[allocation_key] = {
-                "records": target_records,
-                "unique_records": len(unique_digests),
-                "tokens": allocation_tokens,
-                "label_tokens": allocation_label_tokens,
-                "max_repetitions": max_repetitions,
-                "strata": realized_strata,
-            }
-            total_records += target_records
-            total_tokens += allocation_tokens
-            total_label_tokens += allocation_label_tokens
         connection.commit()
     finally:
         connection.close()
-    return selected, total_records, total_tokens, total_label_tokens
+
+
+def _allocation_token_totals(connection: sqlite3.Connection, language: str) -> dict[str, int]:
+    return {
+        f"{pool}|{row_language}|{task}": tokens
+        for pool, row_language, task, tokens in connection.execute(
+            "SELECT c.pool, c.lang, c.task, SUM(c.tokens) FROM selections AS s "
+            "JOIN candidates AS c ON c.digest = s.digest WHERE c.lang = ? GROUP BY c.pool, c.lang, c.task",
+            (language,),
+        )
+    }
+
+
+def _reconciliation_allocation_keys(
+    connection: sqlite3.Connection,
+    policy_plan: Mapping[str, Any],
+    language: str,
+    current_tokens: Mapping[str, int],
+    *,
+    additions: bool,
+) -> list[str]:
+    plan_targets = {
+        key: float(values.get("target_tokens", 0.0))
+        for key, values in policy_plan["pool_allocations"].items()
+        if key.split("|", maxsplit=2)[1] == language
+    }
+    if additions:
+        available_keys = {
+            f"{pool}|{row_language}|{task}"
+            for pool, row_language, task in connection.execute(
+                "SELECT DISTINCT pool, lang, task FROM candidates WHERE lang = ? AND selected = 0",
+                (language,),
+            )
+        }
+    else:
+        available_keys = set(current_tokens)
+    deviations = {
+        key: current_tokens.get(key, 0) - plan_targets.get(key, 0.0)
+        for key in available_keys | set(plan_targets)
+        if key in available_keys
+    }
+    return sorted(deviations, key=lambda key: (deviations[key] if additions else -deviations[key], key))
+
+
+def _addition_candidates(
+    connection: sqlite3.Connection,
+    allocation_keys: Iterable[str],
+) -> Iterable[tuple[bytes, int]]:
+    for allocation_key in allocation_keys:
+        pool, language, task = allocation_key.split("|", maxsplit=2)
+        yield from connection.execute(
+            "SELECT digest, tokens FROM candidates "
+            "WHERE pool = ? AND lang = ? AND task = ? AND selected = 0 ORDER BY sample_key",
+            (pool, language, task),
+        )
+
+
+def _removal_candidates(
+    connection: sqlite3.Connection,
+    allocation_keys: Iterable[str],
+) -> Iterable[tuple[int, int]]:
+    for allocation_key in allocation_keys:
+        pool, language, task = allocation_key.split("|", maxsplit=2)
+        yield from connection.execute(
+            "SELECT s.sequence, c.tokens FROM selections AS s JOIN candidates AS c ON c.digest = s.digest "
+            "WHERE c.pool = ? AND c.lang = ? AND c.task = ? ORDER BY s.sequence DESC",
+            (pool, language, task),
+        )
+
+
+def _reconcile_fixed_language_tokens(
+    output_dir: Path,
+    policy_plan: Mapping[str, Any],
+) -> dict[str, dict[str, int]]:
+    language_targets = policy_plan.get("language_targets")
+    if not isinstance(language_targets, dict) or not language_targets:
+        raise ValueError("p4_fixed_language_tokens plan must define language_targets")
+
+    connection = sqlite3.connect(output_dir / ".mixture.sqlite3")
+    reconciliation: dict[str, dict[str, int]] = {}
+    try:
+        for language, values in sorted(language_targets.items()):
+            raw_target = float(values["target_tokens"])
+            target_tokens = round(raw_target)
+            if not math.isclose(raw_target, target_tokens, abs_tol=1e-6):
+                raise ValueError(f"Language target must be an integer for {language}: {raw_target}")
+            before_tokens = connection.execute(
+                "SELECT COALESCE(SUM(c.tokens), 0) FROM selections AS s "
+                "JOIN candidates AS c ON c.digest = s.digest WHERE c.lang = ?",
+                (language,),
+            ).fetchone()[0]
+            current_tokens = _allocation_token_totals(connection, language)
+            added_records = 0
+            removed_records = 0
+            if before_tokens < target_tokens:
+                difference = target_tokens - before_tokens
+                allocation_keys = _reconciliation_allocation_keys(
+                    connection,
+                    policy_plan,
+                    language,
+                    current_tokens,
+                    additions=True,
+                )
+                additions = _find_exact_token_subset(
+                    _addition_candidates(connection, allocation_keys),
+                    difference,
+                )
+                if additions is None:
+                    raise ValueError(
+                        f"Cannot reconcile {language} from {before_tokens} to {target_tokens} tokens with unselected donors"
+                    )
+                connection.executemany(
+                    "INSERT INTO selections (digest) VALUES (?)", ((digest,) for digest in additions)
+                )
+                connection.executemany(
+                    "UPDATE candidates SET selected = 1 WHERE digest = ?",
+                    ((digest,) for digest in additions),
+                )
+                added_records = len(additions)
+            elif before_tokens > target_tokens:
+                difference = before_tokens - target_tokens
+                allocation_keys = _reconciliation_allocation_keys(
+                    connection,
+                    policy_plan,
+                    language,
+                    current_tokens,
+                    additions=False,
+                )
+                removals = _find_exact_token_subset(
+                    _removal_candidates(connection, allocation_keys),
+                    difference,
+                )
+                if removals is None:
+                    raise ValueError(
+                        f"Cannot reconcile {language} from {before_tokens} to {target_tokens} tokens with selected records"
+                    )
+                removed_digests = [
+                    connection.execute("SELECT digest FROM selections WHERE sequence = ?", (sequence,)).fetchone()[0]
+                    for sequence in removals
+                ]
+                connection.executemany(
+                    "DELETE FROM selections WHERE sequence = ?", ((sequence,) for sequence in removals)
+                )
+                connection.executemany(
+                    "UPDATE candidates SET selected = EXISTS("
+                    "SELECT 1 FROM selections WHERE selections.digest = candidates.digest) WHERE digest = ?",
+                    ((digest,) for digest in removed_digests),
+                )
+                removed_records = len(removals)
+
+            after_tokens = connection.execute(
+                "SELECT COALESCE(SUM(c.tokens), 0) FROM selections AS s "
+                "JOIN candidates AS c ON c.digest = s.digest WHERE c.lang = ?",
+                (language,),
+            ).fetchone()[0]
+            if after_tokens != target_tokens:
+                raise RuntimeError(f"Reconciled {language} to {after_tokens} tokens; expected {target_tokens}")
+            reconciliation[language] = {
+                "target_tokens": target_tokens,
+                "before_tokens": before_tokens,
+                "added_records": added_records,
+                "removed_records": removed_records,
+                "after_tokens": after_tokens,
+            }
+        connection.commit()
+    finally:
+        connection.close()
+    return reconciliation
+
+
+def _summarize_train_records(
+    output_dir: Path,
+) -> tuple[dict[str, dict[str, Any]], int, int, int]:
+    connection = sqlite3.connect(output_dir / ".mixture.sqlite3")
+    selected: dict[str, dict[str, Any]] = {}
+    try:
+        for pool, language, task, records, unique_records, tokens, label_tokens in connection.execute(
+            "SELECT c.pool, c.lang, c.task, COUNT(*), COUNT(DISTINCT c.digest), SUM(c.tokens), SUM(c.labels) "
+            "FROM selections AS s JOIN candidates AS c ON c.digest = s.digest GROUP BY c.pool, c.lang, c.task"
+        ):
+            selected[f"{pool}|{language}|{task}"] = {
+                "records": records,
+                "unique_records": unique_records,
+                "tokens": tokens,
+                "label_tokens": label_tokens,
+                "max_repetitions": 0,
+                "strata": {},
+            }
+        for pool, language, task, stratum, records, tokens, label_tokens in connection.execute(
+            "SELECT c.pool, c.lang, c.task, c.stratum, COUNT(*), SUM(c.tokens), SUM(c.labels) "
+            "FROM selections AS s JOIN candidates AS c ON c.digest = s.digest "
+            "GROUP BY c.pool, c.lang, c.task, c.stratum"
+        ):
+            selected[f"{pool}|{language}|{task}"]["strata"][stratum] = {
+                "records": records,
+                "tokens": tokens,
+                "label_tokens": label_tokens,
+            }
+        for pool, language, task, max_repetitions in connection.execute(
+            "SELECT pool, lang, task, MAX(repetitions) FROM ("
+            "SELECT c.pool, c.lang, c.task, c.digest, COUNT(*) AS repetitions "
+            "FROM selections AS s JOIN candidates AS c ON c.digest = s.digest "
+            "GROUP BY c.pool, c.lang, c.task, c.digest) GROUP BY pool, lang, task"
+        ):
+            selected[f"{pool}|{language}|{task}"]["max_repetitions"] = max_repetitions
+        train_records, train_tokens, train_label_tokens = connection.execute(
+            "SELECT COUNT(*), COALESCE(SUM(c.tokens), 0), COALESCE(SUM(c.labels), 0) "
+            "FROM selections AS s JOIN candidates AS c ON c.digest = s.digest"
+        ).fetchone()
+    finally:
+        connection.close()
+    return dict(sorted(selected.items())), train_records, train_tokens, train_label_tokens
+
+
+def _write_train_records(output_dir: Path, writer: _OutputWriter) -> None:
+    connection = sqlite3.connect(output_dir / ".mixture.sqlite3")
+    try:
+        for pool, payload in connection.execute(
+            "SELECT c.pool, c.payload FROM selections AS s "
+            "JOIN candidates AS c ON c.digest = s.digest ORDER BY s.sequence"
+        ):
+            writer.write("train", pool, payload)
+    finally:
+        connection.close()
 
 
 def _select_validation_records(
@@ -510,17 +742,21 @@ def build_mixture(
             raise ValueError(
                 f"Policy {policy} has {policy_plan['coverage_shortfall_tokens']:.0f} uncovered packed tokens"
             )
-        train, train_records, train_tokens, train_label_tokens = _select_train_records(
+        _select_train_records(
             output_dir,
             policy_plan,
-            writer,
             config.planning.max_epochs,
         )
+        reconciliation = (
+            _reconcile_fixed_language_tokens(output_dir, policy_plan) if policy == "p4_fixed_language_tokens" else {}
+        )
+        train, train_records, train_tokens, train_label_tokens = _summarize_train_records(output_dir)
         if train_label_tokens < config.planning.minimum_label_tokens:
             raise ValueError(
                 f"Materialized {train_label_tokens} label tokens; "
                 f"requires at least {config.planning.minimum_label_tokens}"
             )
+        _write_train_records(output_dir, writer)
         if config.fixed_validation_manifest is not None:
             validation, validation_records, validation_tokens = _copy_fixed_validation(
                 config.fixed_validation_manifest,
@@ -550,6 +786,7 @@ def build_mixture(
         "train_total_tokens": train_tokens,
         "train_total_label_tokens": train_label_tokens,
         "train_token_deviation": train_tokens - planned_tokens,
+        "language_reconciliation": reconciliation,
         "validation_total_records": validation_records,
         "validation_total_tokens": validation_tokens,
         "fixed_validation_manifest": (
