@@ -1,10 +1,10 @@
 # K-series fixed-language training reproduction
 
-Status: the initial one-epoch K10/K14 runs were stopped cleanly and superseded
-when two epochs were requested on 2026-08-27. The two-epoch recipes and launcher
-are validated and ready for a clean launch commit. The user explicitly accepted
-the pre-shift token metric and concurrent launch despite active GPU workloads
-owned by another user. No existing external process was stopped.
+Status: the authoritative two-epoch K10/K14 runs are active from clean launch
+commit `fe90f67b`. The initial one-epoch runs were stopped cleanly and
+superseded when two epochs were requested on 2026-08-27. The user explicitly
+accepted the pre-shift token metric and concurrent launch despite active GPU
+workloads owned by another user. No existing external process was stopped.
 
 ## Run matrix
 
@@ -30,6 +30,25 @@ owned by another user. No existing external process was stopped.
 Both arms start independently from `google/gemma-4-E2B-it` revision
 `3e22461f65e89153144f8adb70e3b8c2cc9845a7`. Neither initializes from an
 existing adapter or another arm.
+
+## Active two-epoch launch
+
+| Field | K10 | K14 |
+|---|---|---|
+| Launch commit | `fe90f67b415edda52613949b44d48b4e0bba7b15` | `fe90f67b415edda52613949b44d48b4e0bba7b15` |
+| Container start | `2026-08-27T10:18:09Z` | `2026-08-27T10:18:39Z` |
+| W&B ID | `dedr4hqq` | `t1ifwwal` |
+| W&B URL | `https://wandb.ai/dsfsi/gemma4-african-instruction/runs/dedr4hqq` | `https://wandb.ai/dsfsi/gemma4-african-instruction/runs/t1ifwwal` |
+| Resolved optimizer / warmup steps | 3,362 / 336 | 4,708 / 470 |
+| Step 0 loss / PPL | 4.4937 / 89.4492 | 4.5273 / 92.5123 |
+| Step 0 gradient norm | 34.6126 | 40.4565 |
+| Step 0 LR | `2.05e-5` | `2.04e-5` |
+| Step 0 throughput | 1,187.01 tokens/s | 1,146.21 tokens/s |
+| Step 0 GPU allocation | 30.27 GiB | 30.27 GiB |
+| Existing GPU PID at start | `1639574` | `1640844` |
+
+Both step-zero records are finite, the resolved schedules match production
+preflight exactly, and the containers report OOM false.
 
 ## Superseded one-epoch qualification
 
@@ -128,7 +147,7 @@ Docker container command.
 | Training executable | `/opt/venv/bin/automodel` |
 | Processes | One process and one GPU per arm |
 | Development base | `77394a463c9d177a35be09737cdab5c388e32025` |
-| Exact two-epoch launch commit | Recorded in each new checkpoint root's `launch-artifacts/provenance.txt` and W&B |
+| Exact two-epoch launch commit | `fe90f67b415edda52613949b44d48b4e0bba7b15` |
 | Host experiment root | `/ext_data/casper_neo/Casper/kseries-next-run` |
 
 Do not launch with `uv run` in the bind-mounted container. Do not change the
