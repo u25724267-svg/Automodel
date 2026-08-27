@@ -51,6 +51,8 @@ def test_afriinstruct_recipes_preserve_gemma4_e2b_text_only_contract() -> None:
         "gemma4_e2b_k14_p3_r16_2ep_nvidia_lr.yaml",
         "gemma4_e2b_k10_p4_5m_r16_1ep_nvidia_lr.yaml",
         "gemma4_e2b_k14_p4_5m_r16_1ep_nvidia_lr.yaml",
+        "gemma4_e2b_k10_p4_5m_r16_2ep_nvidia_lr.yaml",
+        "gemma4_e2b_k14_p4_5m_r16_2ep_nvidia_lr.yaml",
     ):
         recipe = _load_recipe(name)
 
@@ -349,6 +351,46 @@ def test_fixed_language_recipes_use_one_epoch_nvidia_policy_and_accepted_data() 
         assert recipe["wandb"]["project"] == "${WANDB_PROJECT}"
         assert recipe["wandb"]["name"] == f"gemma4-e2b-{arm}-p4-5m-per-language-r16-1ep-v1"
         assert recipe["wandb"]["group"] == "gemma4-e2b-p4-5m-per-language-r16-1ep"
+
+
+def test_fixed_language_two_epoch_recipes_only_change_duration_and_identity() -> None:
+    for arm in ("k10", "k14"):
+        one_epoch = _load_recipe(f"gemma4_e2b_{arm}_p4_5m_r16_1ep_nvidia_lr.yaml")
+        two_epochs = _load_recipe(f"gemma4_e2b_{arm}_p4_5m_r16_2ep_nvidia_lr.yaml")
+
+        for section in (
+            "model",
+            "processor",
+            "peft",
+            "dist_env",
+            "distributed",
+            "freeze_config",
+            "loss_fn",
+            "dataset",
+            "packed_sequence",
+            "dataloader",
+            "validation_dataset",
+            "validation_dataloader",
+            "optimizer",
+            "lr_scheduler",
+            "clip_grad_norm",
+            "rng",
+        ):
+            assert two_epochs[section] == one_epoch[section]
+
+        expected_step_scheduler = dict(one_epoch["step_scheduler"])
+        expected_step_scheduler["num_epochs"] = 2
+        assert two_epochs["step_scheduler"] == expected_step_scheduler
+        assert two_epochs["checkpoint"] == {
+            **one_epoch["checkpoint"],
+            "checkpoint_dir": f"/checkpoints/gemma4-e2b-{arm}/p4-5m-per-language-r16-2ep-v1",
+        }
+        assert two_epochs["wandb"]["enable"] is False
+        assert two_epochs["wandb"]["entity"] == one_epoch["wandb"]["entity"]
+        assert two_epochs["wandb"]["project"] == one_epoch["wandb"]["project"]
+        assert two_epochs["wandb"]["dir"] == one_epoch["wandb"]["dir"]
+        assert two_epochs["wandb"]["name"] == f"gemma4-e2b-{arm}-p4-5m-per-language-r16-2ep-v1"
+        assert two_epochs["wandb"]["group"] == "gemma4-e2b-p4-5m-per-language-r16-2ep"
 
 
 def test_inkuba_v1_ablation_preserves_v1_training_policy() -> None:

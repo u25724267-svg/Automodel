@@ -347,7 +347,7 @@ sg docker -c 'docker run --rm \
 ```
 
 Before training, separately run the production VLM dataset-loader preflight,
-create one-epoch run configs pointing to the accepted manifests, resolve exact
+create the amended two-epoch run configs pointing to the accepted manifests, resolve exact
 optimizer/warmup steps from the packed dataset, and complete final execution
 review. The completed recipes, schedules, detached launcher, and launch gates
 are recorded in

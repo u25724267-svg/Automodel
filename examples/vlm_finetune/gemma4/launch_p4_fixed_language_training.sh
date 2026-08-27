@@ -7,6 +7,7 @@ EXPERIMENT_ROOT="${EXPERIMENT_ROOT:-/ext_data/casper_neo/Casper/kseries-next-run
 K10_GPU="${K10_GPU:-0}"
 K14_GPU="${K14_GPU:-1}"
 ALLOW_BUSY_GPU="${ALLOW_BUSY_GPU:-0}"
+EPOCHS="${EPOCHS:-1}"
 
 ACTION="${1:-status}"
 ARM="${2:-all}"
@@ -24,7 +25,8 @@ Actions:
   logs    Follow one arm's logs (k10 or k14).
 
 Environment overrides:
-    REPO_ROOT, EXPERIMENT_ROOT, IMAGE, K10_GPU, K14_GPU, ALLOW_BUSY_GPU
+    REPO_ROOT, EXPERIMENT_ROOT, IMAGE, K10_GPU, K14_GPU, ALLOW_BUSY_GPU,
+    EPOCHS (1 or 2; default 1)
 
 For an exact reproduction, do not override IMAGE or recipe paths. W&B is
 enabled by the fixed CLI override recorded in this script because repository
@@ -40,6 +42,10 @@ case "$ARM" in
     k10|k14|all) ;;
     *) usage; exit 2 ;;
 esac
+if [[ "$EPOCHS" != "1" && "$EPOCHS" != "2" ]]; then
+    echo "EPOCHS must be 1 or 2" >&2
+    exit 2
+fi
 if [[ "$ACTION" == "logs" && "$ARM" == "all" ]]; then
     echo "logs requires one arm: k10 or k14" >&2
     exit 2
@@ -65,29 +71,47 @@ require_path() {
 arm_values() {
     local arm="$1"
     if [[ "$arm" == "k10" ]]; then
-        CONTAINER_NAME="gemma4-e2b-k10-p4-5m-per-language-r16-1ep-v1"
         GPU="$K10_GPU"
         DATA_HOST="$DATA_ROOT/k10-sft"
         DATA_CONTAINER="/data/gemma4-k10"
         MIXTURE_NAME="mixture-p4-5m-per-language-v2"
-        RECIPE_REL="examples/vlm_finetune/gemma4/gemma4_e2b_k10_p4_5m_r16_1ep_nvidia_lr.yaml"
-        CHECKPOINT_REL="gemma4-e2b-k10/p4-5m-per-language-r16-1ep-v1"
         EXPECTED_AUDIT_SHA="27e81495c51619920bbbd1ac58219d90949543e7e0aadb788cce8d56dca1cb3b"
-        EXPECTED_RECIPE_SHA="10988900d83a81bfaee6dd5753caf6a74f968ada26a396f0223ed036564b895c"
-        EXPECTED_STEPS=1681
-        EXPECTED_WARMUP=168
+        if [[ "$EPOCHS" == "1" ]]; then
+            CONTAINER_NAME="gemma4-e2b-k10-p4-5m-per-language-r16-1ep-v1"
+            RECIPE_REL="examples/vlm_finetune/gemma4/gemma4_e2b_k10_p4_5m_r16_1ep_nvidia_lr.yaml"
+            CHECKPOINT_REL="gemma4-e2b-k10/p4-5m-per-language-r16-1ep-v1"
+            EXPECTED_RECIPE_SHA="10988900d83a81bfaee6dd5753caf6a74f968ada26a396f0223ed036564b895c"
+            EXPECTED_STEPS=1681
+            EXPECTED_WARMUP=168
+        else
+            CONTAINER_NAME="gemma4-e2b-k10-p4-5m-per-language-r16-2ep-v1"
+            RECIPE_REL="examples/vlm_finetune/gemma4/gemma4_e2b_k10_p4_5m_r16_2ep_nvidia_lr.yaml"
+            CHECKPOINT_REL="gemma4-e2b-k10/p4-5m-per-language-r16-2ep-v1"
+            EXPECTED_RECIPE_SHA="f7b491be7649866ba8eb92f9fcc07d53aa9c630ea12f8bbc7f736270680a7a0e"
+            EXPECTED_STEPS=3362
+            EXPECTED_WARMUP=336
+        fi
     else
-        CONTAINER_NAME="gemma4-e2b-k14-p4-5m-per-language-r16-1ep-v1"
         GPU="$K14_GPU"
         DATA_HOST="$DATA_ROOT/k14-sft"
         DATA_CONTAINER="/data/gemma4-k14"
         MIXTURE_NAME="mixture-p4-5m-per-language-v1"
-        RECIPE_REL="examples/vlm_finetune/gemma4/gemma4_e2b_k14_p4_5m_r16_1ep_nvidia_lr.yaml"
-        CHECKPOINT_REL="gemma4-e2b-k14/p4-5m-per-language-r16-1ep-v1"
         EXPECTED_AUDIT_SHA="a7a70645b094560f530f48b3db8f4bfce105fac3bea357109324b95fb16e7594"
-        EXPECTED_RECIPE_SHA="71769f694a0dc3edc54094503a297858de6dac79697f0c380358c05c746eddf7"
-        EXPECTED_STEPS=2354
-        EXPECTED_WARMUP=235
+        if [[ "$EPOCHS" == "1" ]]; then
+            CONTAINER_NAME="gemma4-e2b-k14-p4-5m-per-language-r16-1ep-v1"
+            RECIPE_REL="examples/vlm_finetune/gemma4/gemma4_e2b_k14_p4_5m_r16_1ep_nvidia_lr.yaml"
+            CHECKPOINT_REL="gemma4-e2b-k14/p4-5m-per-language-r16-1ep-v1"
+            EXPECTED_RECIPE_SHA="71769f694a0dc3edc54094503a297858de6dac79697f0c380358c05c746eddf7"
+            EXPECTED_STEPS=2354
+            EXPECTED_WARMUP=235
+        else
+            CONTAINER_NAME="gemma4-e2b-k14-p4-5m-per-language-r16-2ep-v1"
+            RECIPE_REL="examples/vlm_finetune/gemma4/gemma4_e2b_k14_p4_5m_r16_2ep_nvidia_lr.yaml"
+            CHECKPOINT_REL="gemma4-e2b-k14/p4-5m-per-language-r16-2ep-v1"
+            EXPECTED_RECIPE_SHA="8d0e2b8ef2e4211445e4f486d5ec1a7af9426409661c2b90b92c612e750f4c36"
+            EXPECTED_STEPS=4708
+            EXPECTED_WARMUP=470
+        fi
     fi
     RECIPE_HOST="$REPO_ROOT/$RECIPE_REL"
     CHECKPOINT_HOST="$CHECKPOINT_ROOT/$CHECKPOINT_REL"
@@ -156,6 +180,7 @@ snapshot_launch_artifacts() {
         echo "image=$IMAGE"
         echo "container=$CONTAINER_NAME"
         echo "gpu=$GPU"
+        echo "epochs=$EPOCHS"
         echo "allow_busy_gpu=$ALLOW_BUSY_GPU"
         echo "expected_optimizer_steps=$EXPECTED_STEPS"
         echo "expected_warmup_steps=$EXPECTED_WARMUP"

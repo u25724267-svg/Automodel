@@ -1,34 +1,37 @@
 # K-series fixed-language training reproduction
 
-Status: K10 and K14 are running from clean launch commit `cd8acc9e`. On
-2026-08-27 the user explicitly accepted the pre-shift token metric and
-authorized concurrent launch despite active GPU workloads owned by another
-user. No existing process was stopped by this workflow.
+Status: the initial one-epoch K10/K14 runs were stopped cleanly and superseded
+when two epochs were requested on 2026-08-27. The two-epoch recipes and launcher
+are validated and ready for a clean launch commit. The user explicitly accepted
+the pre-shift token metric and concurrent launch despite active GPU workloads
+owned by another user. No existing external process was stopped.
 
 ## Run matrix
 
 | Field | K10 | K14 |
 |---|---|---|
-| Run name | `gemma4-e2b-k10-p4-5m-per-language-r16-1ep-v1` | `gemma4-e2b-k14-p4-5m-per-language-r16-1ep-v1` |
-| Recipe | `gemma4_e2b_k10_p4_5m_r16_1ep_nvidia_lr.yaml` | `gemma4_e2b_k14_p4_5m_r16_1ep_nvidia_lr.yaml` |
+| Run name | `gemma4-e2b-k10-p4-5m-per-language-r16-2ep-v1` | `gemma4-e2b-k14-p4-5m-per-language-r16-2ep-v1` |
+| Recipe | `gemma4_e2b_k10_p4_5m_r16_2ep_nvidia_lr.yaml` | `gemma4_e2b_k14_p4_5m_r16_2ep_nvidia_lr.yaml` |
 | Dataset | `/data/gemma4-k10/mixture-p4-5m-per-language-v2` | `/data/gemma4-k14/mixture-p4-5m-per-language-v1` |
 | Languages | 10 | 14 |
-| Materialized pre-shift tokens | 50,000,000 | 70,000,000 |
-| Post-shift model-input tokens | 49,553,273 | 69,395,884 |
-| Epochs | 1 | 1 |
+| Materialized pre-shift tokens per epoch | 50,000,000 | 70,000,000 |
+| Post-shift model-input tokens per epoch | 49,553,273 | 69,395,884 |
+| Total pre-shift exposure | 100,000,000 | 140,000,000 |
+| Total post-shift model-input exposure | 99,106,546 | 138,791,768 |
+| Epochs | 2 | 2 |
 | Packed batches | 13,446 | 18,831 |
-| Optimizer steps | 1,681 | 2,354 |
-| LR warmup steps | 168 | 235 |
-| LR decay steps | 1,681 | 2,354 |
+| Optimizer steps | 3,362 | 4,708 |
+| LR warmup steps | 336 | 470 |
+| LR decay steps | 3,362 | 4,708 |
 | Validation/checkpoint cadence | 200 steps | 200 steps |
 | Default GPU | 0 | 1 |
-| Checkpoint root | `/checkpoints/gemma4-e2b-k10/p4-5m-per-language-r16-1ep-v1` | `/checkpoints/gemma4-e2b-k14/p4-5m-per-language-r16-1ep-v1` |
+| Checkpoint root | `/checkpoints/gemma4-e2b-k10/p4-5m-per-language-r16-2ep-v1` | `/checkpoints/gemma4-e2b-k14/p4-5m-per-language-r16-2ep-v1` |
 
 Both arms start independently from `google/gemma-4-E2B-it` revision
 `3e22461f65e89153144f8adb70e3b8c2cc9845a7`. Neither initializes from an
 existing adapter or another arm.
 
-## Active launch
+## Superseded one-epoch qualification
 
 | Field | K10 | K14 |
 |---|---|---|
@@ -42,15 +45,21 @@ existing adapter or another arm.
 | Step 0 throughput | 1,134.21 tokens/s | 1,145.79 tokens/s |
 | Step 0 GPU allocation | 30.27 GiB | 30.27 GiB |
 | Existing GPU PID at start | `1639574` | `1640844` |
+| Final completed step | 139 | 135 |
+| Stop time | `2026-08-27T10:08:57Z` | `2026-08-27T10:08:57Z` |
+| Container exit / OOM | 0 / false | 0 / false |
+| Final interruption checkpoint | `epoch_0_step_139` | `epoch_0_step_135` |
 
-Both step-zero records are finite. Resolved schedules match preflight exactly:
-K10 uses 1,681 optimizer steps with 168 warmup steps; K14 uses 2,354 optimizer
-steps with 235 warmup steps.
+Both step-zero records were finite. These runs were stopped gracefully and are
+not part of the requested two-epoch comparison. Their W&B runs, logs,
+launch-artifacts, and final interruption checkpoints are retained.
 
 ## Saved artifacts
 
 - [K10 recipe](gemma4_e2b_k10_p4_5m_r16_1ep_nvidia_lr.yaml)
 - [K14 recipe](gemma4_e2b_k14_p4_5m_r16_1ep_nvidia_lr.yaml)
+- [K10 two-epoch recipe](gemma4_e2b_k10_p4_5m_r16_2ep_nvidia_lr.yaml)
+- [K14 two-epoch recipe](gemma4_e2b_k14_p4_5m_r16_2ep_nvidia_lr.yaml)
 - [Detached launcher](launch_p4_fixed_language_training.sh)
 - [Data reproduction and audits](KSERIES_FIXED_LANGUAGE_DATA_REPRODUCTION.md)
 
@@ -58,7 +67,9 @@ steps with 235 warmup steps.
 |---|---|
 | K10 recipe | `10988900d83a81bfaee6dd5753caf6a74f968ada26a396f0223ed036564b895c` |
 | K14 recipe | `71769f694a0dc3edc54094503a297858de6dac79697f0c380358c05c746eddf7` |
-| Detached launcher | `e08eaa5eb7aa89179051238e3d8edd053aa7ef112edea507a65e13f14ed20ad5` |
+| K10 two-epoch recipe | `f7b491be7649866ba8eb92f9fcc07d53aa9c630ea12f8bbc7f736270680a7a0e` |
+| K14 two-epoch recipe | `8d0e2b8ef2e4211445e4f486d5ec1a7af9426409661c2b90b92c612e750f4c36` |
+| Epoch-aware detached launcher | `545afa179eb6a657d99c93e3e365d7e1551bd84313f61688d897139ec8d98dfc` |
 | K10 data audit | `27e81495c51619920bbbd1ac58219d90949543e7e0aadb788cce8d56dca1cb3b` |
 | K14 data audit | `a7a70645b094560f530f48b3db8f4bfce105fac3bea357109324b95fb16e7594` |
 
@@ -86,11 +97,11 @@ completed K10/K14 two-epoch ablations:
 - seed 42 with ranked RNG;
 - checkpoints and validation every 200 optimizer steps.
 
-The only intentional changes are accepted P4 data paths, one epoch, run names,
-W&B metadata, and isolated checkpoint roots. One epoch consumes each selected
-record once. The 5M target is the pre-shift processor-token metric used during
-planning and materialization; the causal-shift totals in the run matrix were
-reviewed and accepted before launch.
+The intentional changes from the stopped qualification are two epochs, new run
+names, a two-epoch W&B group, and isolated checkpoint roots. Each epoch consumes
+every selected record once. The 5M per-language target is the pre-shift
+processor-token metric per epoch; the doubled exposure and causal-shift totals
+in the run matrix were reviewed before launch.
 
 ## W&B contract
 
@@ -100,7 +111,7 @@ Both runs use:
 |---|---|
 | Entity | `${WANDB_ENTITY}` from `.env` (`dsfsi`) |
 | Project | `${WANDB_PROJECT}` from `.env` (`gemma4-african-instruction`) |
-| Group | `gemma4-e2b-p4-5m-per-language-r16-1ep` |
+| Group | `gemma4-e2b-p4-5m-per-language-r16-2ep` |
 | Mode | `${WANDB_MODE}` from `.env` (`online`) |
 | Persistent directory | `/logs/wandb` mapped to the experiment W&B root |
 
@@ -117,7 +128,7 @@ Docker container command.
 | Training executable | `/opt/venv/bin/automodel` |
 | Processes | One process and one GPU per arm |
 | Development base | `77394a463c9d177a35be09737cdab5c388e32025` |
-| Exact launch commit | `cd8acc9e69283208e8e2832176905f23ba3e215b` |
+| Exact two-epoch launch commit | Recorded in each new checkpoint root's `launch-artifacts/provenance.txt` and W&B |
 | Host experiment root | `/ext_data/casper_neo/Casper/kseries-next-run` |
 
 Do not launch with `uv run` in the bind-mounted container. Do not change the
@@ -130,10 +141,10 @@ Completed before container creation:
 - both accepted data audits pass;
 - K10 production dataset builder: 446,727 train and 30,306 validation records;
 - K14 production dataset builder: 604,116 train and 23,440 validation records;
-- production packed loader resolves K10 to 13,446 batches and 1,681 steps;
-- production packed loader resolves K14 to 18,831 batches and 2,354 steps;
-- derived warmup is 10%: 168 K10 steps and 235 K14 steps;
-- 11 focused Gemma recipe tests pass;
+- production packed loader resolves K10 to 13,446 batches per epoch and 3,362 total steps;
+- production packed loader resolves K14 to 18,831 batches per epoch and 4,708 total steps;
+- derived warmup is 10%: 336 K10 steps and 470 K14 steps;
+- 12 focused Gemma recipe tests pass;
 - both recipes pass `tools/lint_example_yamls.py`;
 - YAML/editor diagnostics and launcher shell syntax pass;
 - W&B/HF environment fields are present without exposing values;
@@ -147,19 +158,19 @@ their logs and exit/OOM state after completion.
 ```bash
 # Create both containers and copy launch artifacts, but do not start training.
 sg docker -c \
-  'examples/vlm_finetune/gemma4/launch_p4_fixed_language_training.sh create all'
+  'EPOCHS=2 examples/vlm_finetune/gemma4/launch_p4_fixed_language_training.sh create all'
 
 # Start only when both assigned GPUs report no active compute PIDs.
 sg docker -c \
-  'examples/vlm_finetune/gemma4/launch_p4_fixed_language_training.sh start all'
+  'EPOCHS=2 examples/vlm_finetune/gemma4/launch_p4_fixed_language_training.sh start all'
 
 # Authorized 2026-08-27 start while other-user workloads remain active.
 sg docker -c \
-  'ALLOW_BUSY_GPU=1 examples/vlm_finetune/gemma4/launch_p4_fixed_language_training.sh start all'
+  'EPOCHS=2 ALLOW_BUSY_GPU=1 examples/vlm_finetune/gemma4/launch_p4_fixed_language_training.sh start all'
 
 # Equivalent create+start operation when GPUs are already idle.
 sg docker -c \
-  'examples/vlm_finetune/gemma4/launch_p4_fixed_language_training.sh launch all'
+  'EPOCHS=2 examples/vlm_finetune/gemma4/launch_p4_fixed_language_training.sh launch all'
 ```
 
 The `start` action fails closed if another compute PID is visible on the
@@ -172,13 +183,13 @@ report.
 
 ```bash
 sg docker -c \
-  'examples/vlm_finetune/gemma4/launch_p4_fixed_language_training.sh status all'
+  'EPOCHS=2 examples/vlm_finetune/gemma4/launch_p4_fixed_language_training.sh status all'
 
 sg docker -c \
-  'examples/vlm_finetune/gemma4/launch_p4_fixed_language_training.sh logs k10'
+  'EPOCHS=2 examples/vlm_finetune/gemma4/launch_p4_fixed_language_training.sh logs k10'
 
 sg docker -c \
-  'examples/vlm_finetune/gemma4/launch_p4_fixed_language_training.sh logs k14'
+  'EPOCHS=2 examples/vlm_finetune/gemma4/launch_p4_fixed_language_training.sh logs k14'
 ```
 
 After launch, require for each arm:

@@ -18,12 +18,15 @@ explicitly accepted without rematerialization.
 
 | Arm | Languages | Materialized pre-shift target | Epochs |
 |---|---:|---:|---:|
-| K10 | 10 | 50,000,000 packed tokens | 1 |
-| K14 | 14 | 70,000,000 packed tokens | 1 |
+| K10 | 10 | 50,000,000 packed tokens per epoch | 2 |
+| K14 | 14 | 70,000,000 packed tokens per epoch | 2 |
 
-One epoch is required: two epochs would expose 10M tokens per language and
-would not test the stated 5M consumed-token budget. Both arms start
-independently from `google/gemma-4-E2B-it` revision
+The original preregistration required one epoch. On 2026-08-27, after the
+one-epoch qualifications had started, the user amended the runs to two epochs
+to align with the recent NVIDIA-policy K10/K14 experiments. The authoritative
+runs therefore expose each language to 10M pre-shift processor tokens across
+two passes; the stopped one-epoch runs remain documented. Both authoritative
+arms start independently from `google/gemma-4-E2B-it` revision
 `3e22461f65e89153144f8adb70e3b8c2cc9845a7`.
 
 ## Proposed training control
@@ -337,8 +340,8 @@ Use new versioned roots; never overwrite accepted P2/P3 mixtures.
 
 | Arm | Accepted mixture root | Planned run name |
 |---|---|---|
-| K10 | `/data/gemma4-k10/mixture-p4-5m-per-language-v2` | `gemma4-e2b-k10-p4-5m-per-language-r16-1ep-v1` |
-| K14 | `/data/gemma4-k14/mixture-p4-5m-per-language-v1` | `gemma4-e2b-k14-p4-5m-per-language-r16-1ep-v1` |
+| K10 | `/data/gemma4-k10/mixture-p4-5m-per-language-v2` | `gemma4-e2b-k10-p4-5m-per-language-r16-2ep-v1` |
+| K14 | `/data/gemma4-k14/mixture-p4-5m-per-language-v1` | `gemma4-e2b-k14-p4-5m-per-language-r16-2ep-v1` |
 
 Both runs use `dsfsi/gemma4-african-instruction`, with distinct names, groups,
 checkpoint roots, configs, hashes, and W&B IDs.
