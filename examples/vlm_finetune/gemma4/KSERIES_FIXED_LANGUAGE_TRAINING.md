@@ -1,9 +1,9 @@
 # K-series fixed-language training reproduction
 
-Status: K10 and K14 recipes are configured and validated. On 2026-08-27 the
-user explicitly accepted the pre-shift token metric and authorized concurrent
-launch despite active GPU workloads owned by another user. No existing process
-will be stopped by this workflow.
+Status: K10 and K14 are running from clean launch commit `cd8acc9e`. On
+2026-08-27 the user explicitly accepted the pre-shift token metric and
+authorized concurrent launch despite active GPU workloads owned by another
+user. No existing process was stopped by this workflow.
 
 ## Run matrix
 
@@ -27,6 +27,25 @@ will be stopped by this workflow.
 Both arms start independently from `google/gemma-4-E2B-it` revision
 `3e22461f65e89153144f8adb70e3b8c2cc9845a7`. Neither initializes from an
 existing adapter or another arm.
+
+## Active launch
+
+| Field | K10 | K14 |
+|---|---|---|
+| Launch commit | `cd8acc9e69283208e8e2832176905f23ba3e215b` | `cd8acc9e69283208e8e2832176905f23ba3e215b` |
+| Container start | `2026-08-27T09:17:59Z` | `2026-08-27T09:18:28Z` |
+| W&B ID | `97hpwt0r` | `eugmkhkk` |
+| W&B URL | `https://wandb.ai/dsfsi/gemma4-african-instruction/runs/97hpwt0r` | `https://wandb.ai/dsfsi/gemma4-african-instruction/runs/eugmkhkk` |
+| Step 0 loss / PPL | 4.4937 / 89.4492 | 4.5273 / 92.5123 |
+| Step 0 gradient norm | 34.6458 | 40.5018 |
+| Step 0 LR | `2.11e-5` | `2.08e-5` |
+| Step 0 throughput | 1,134.21 tokens/s | 1,145.79 tokens/s |
+| Step 0 GPU allocation | 30.27 GiB | 30.27 GiB |
+| Existing GPU PID at start | `1639574` | `1640844` |
+
+Both step-zero records are finite. Resolved schedules match preflight exactly:
+K10 uses 1,681 optimizer steps with 168 warmup steps; K14 uses 2,354 optimizer
+steps with 235 warmup steps.
 
 ## Saved artifacts
 
@@ -98,7 +117,7 @@ Docker container command.
 | Training executable | `/opt/venv/bin/automodel` |
 | Processes | One process and one GPU per arm |
 | Development base | `77394a463c9d177a35be09737cdab5c388e32025` |
-| Exact launch commit | Recorded in each checkpoint root's `launch-artifacts/provenance.txt` and W&B |
+| Exact launch commit | `cd8acc9e69283208e8e2832176905f23ba3e215b` |
 | Host experiment root | `/ext_data/casper_neo/Casper/kseries-next-run` |
 
 Do not launch with `uv run` in the bind-mounted container. Do not change the
