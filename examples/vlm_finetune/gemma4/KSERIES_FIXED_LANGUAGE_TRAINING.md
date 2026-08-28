@@ -38,19 +38,6 @@ existing adapter or another arm.
 | Launch commit | `fe90f67b415edda52613949b44d48b4e0bba7b15` | `fe90f67b415edda52613949b44d48b4e0bba7b15` |
 | Container start | `2026-08-27T10:18:09Z` | `2026-08-27T10:18:39Z` |
 | W&B ID | `dedr4hqq` | `t1ifwwal` |
-
-The resume containers started at `2026-08-28T11:56:13Z` (K10) and
-`2026-08-28T11:56:41Z` (K14) from clean commit
-`76aed63368ed61395fd597b4f0fde08ced75e6a4`. W&B attached to the original URLs;
-no new run IDs were created.
-
-| First resumed metric | K10 step 1800 | K14 step 2000 |
-|---|---:|---:|
-| Loss / PPL | 2.2837 / 9.8129 | 1.6735 / 5.3309 |
-| Gradient norm | 1.4595 | 1.0281 |
-| LR | `1.06e-4` | `1.43e-4` |
-| Throughput | 1,253.65 tokens/s | 1,288.21 tokens/s |
-| GPU allocation | 30.36 GiB | 30.36 GiB |
 | W&B URL | `https://wandb.ai/dsfsi/gemma4-african-instruction/runs/dedr4hqq` | `https://wandb.ai/dsfsi/gemma4-african-instruction/runs/t1ifwwal` |
 | Resolved optimizer / warmup steps | 3,362 / 336 | 4,708 / 470 |
 | Step 0 loss / PPL | 4.4937 / 89.4492 | 4.5273 / 92.5123 |
@@ -69,6 +56,21 @@ preflight exactly. The host rebooted at `2026-08-28T11:09:12Z`; both containers
 ended together 33 seconds later with no Docker error, OOM false, and no kernel
 OOM/GPU-reset event. This was an infrastructure interruption, not a training
 failure.
+
+## Active resume
+
+The resume containers started at `2026-08-28T11:56:13Z` (K10) and
+`2026-08-28T11:56:41Z` (K14) from clean commit
+`76aed63368ed61395fd597b4f0fde08ced75e6a4`. W&B attached to the original URLs;
+no new run IDs were created.
+
+| First resumed metric | K10 step 1800 | K14 step 2000 |
+|---|---:|---:|
+| Loss / PPL | 2.2837 / 9.8129 | 1.6735 / 5.3309 |
+| Gradient norm | 1.4595 | 1.0281 |
+| LR | `1.06e-4` | `1.43e-4` |
+| Throughput | 1,253.65 tokens/s | 1,288.21 tokens/s |
+| GPU allocation | 30.36 GiB | 30.36 GiB |
 
 ## Superseded one-epoch qualification
 
