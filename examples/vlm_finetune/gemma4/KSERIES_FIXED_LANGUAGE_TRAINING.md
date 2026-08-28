@@ -1,10 +1,10 @@
 # K-series fixed-language training reproduction
 
-Status: the authoritative two-epoch K10/K14 runs are active from clean launch
-commit `fe90f67b`. The initial one-epoch runs were stopped cleanly and
-superseded when two epochs were requested on 2026-08-27. The user explicitly
-accepted the pre-shift token metric and concurrent launch despite active GPU
-workloads owned by another user. No existing external process was stopped.
+Status: the authoritative two-epoch K10/K14 runs were interrupted by a host
+reboot on 2026-08-28. Complete checkpoints and same-ID W&B resume configs are
+validated and ready for a clean resume commit. The initial one-epoch runs remain
+superseded. The user explicitly accepted the pre-shift token metric and
+concurrent launch despite active GPU workloads owned by another user.
 
 ## Run matrix
 
@@ -31,7 +31,7 @@ Both arms start independently from `google/gemma-4-E2B-it` revision
 `3e22461f65e89153144f8adb70e3b8c2cc9845a7`. Neither initializes from an
 existing adapter or another arm.
 
-## Active two-epoch launch
+## Interrupted two-epoch launch
 
 | Field | K10 | K14 |
 |---|---|---|
@@ -46,9 +46,16 @@ existing adapter or another arm.
 | Step 0 throughput | 1,187.01 tokens/s | 1,146.21 tokens/s |
 | Step 0 GPU allocation | 30.27 GiB | 30.27 GiB |
 | Existing GPU PID at start | `1639574` | `1640844` |
+| Last complete checkpoint | `epoch_1_step_1799` | `epoch_0_step_1999` |
+| Persisted training records | 1,800 | 2,000 |
+| Container finish | `2026-08-28T11:09:45Z` | `2026-08-28T11:09:45Z` |
+| Container exit / OOM | 255 / false | 255 / false |
 
-Both step-zero records are finite, the resolved schedules match production
-preflight exactly, and the containers report OOM false.
+Both step-zero records are finite and the resolved schedules match production
+preflight exactly. The host rebooted at `2026-08-28T11:09:12Z`; both containers
+ended together 33 seconds later with no Docker error, OOM false, and no kernel
+OOM/GPU-reset event. This was an infrastructure interruption, not a training
+failure.
 
 ## Superseded one-epoch qualification
 
@@ -79,6 +86,8 @@ launch-artifacts, and final interruption checkpoints are retained.
 - [K14 recipe](gemma4_e2b_k14_p4_5m_r16_1ep_nvidia_lr.yaml)
 - [K10 two-epoch recipe](gemma4_e2b_k10_p4_5m_r16_2ep_nvidia_lr.yaml)
 - [K14 two-epoch recipe](gemma4_e2b_k14_p4_5m_r16_2ep_nvidia_lr.yaml)
+- [K10 resume recipe](gemma4_e2b_k10_p4_5m_r16_2ep_resume_step1799.yaml)
+- [K14 resume recipe](gemma4_e2b_k14_p4_5m_r16_2ep_resume_step1999.yaml)
 - [Detached launcher](launch_p4_fixed_language_training.sh)
 - [Data reproduction and audits](KSERIES_FIXED_LANGUAGE_DATA_REPRODUCTION.md)
 
@@ -88,7 +97,9 @@ launch-artifacts, and final interruption checkpoints are retained.
 | K14 recipe | `71769f694a0dc3edc54094503a297858de6dac79697f0c380358c05c746eddf7` |
 | K10 two-epoch recipe | `f7b491be7649866ba8eb92f9fcc07d53aa9c630ea12f8bbc7f736270680a7a0e` |
 | K14 two-epoch recipe | `8d0e2b8ef2e4211445e4f486d5ec1a7af9426409661c2b90b92c612e750f4c36` |
-| Epoch-aware detached launcher | `545afa179eb6a657d99c93e3e365d7e1551bd84313f61688d897139ec8d98dfc` |
+| K10 resume recipe | `5c2cf813e70848eb993011626ebe1f2e0c0e4098390652b8362c0a9c50f43e6b` |
+| K14 resume recipe | `25673f08b16b650e3a6c7173cbefb1361b2ce50c33a2561516bbc0f14388b482` |
+| Resume-aware detached launcher | `b131819f20a0ef85cfb0998fcb54f6da0b62a054ac76863a656b26925e034358` |
 | K10 data audit | `27e81495c51619920bbbd1ac58219d90949543e7e0aadb788cce8d56dca1cb3b` |
 | K14 data audit | `a7a70645b094560f530f48b3db8f4bfce105fac3bea357109324b95fb16e7594` |
 
@@ -197,6 +208,39 @@ assigned GPU unless `ALLOW_BUSY_GPU=1` is explicitly set. This run was
 authorized to use that override. GPU assignments can be changed with `K10_GPU`
 and `K14_GPU`; either override is recorded in the launch snapshot and run
 report.
+
+## Resume after host reboot
+
+The selected checkpoints contain model adapter, optimizer DCP, RNG,
+dataloader, step-scheduler, and config state. `LATEST` resolves to the exact
+checkpoint named below. Resume recipes keep the original data, schedule,
+checkpoint root, run name, and W&B group; they add only `restore_from: LATEST`,
+the original W&B `id`, `resume: must`, and resume notes/tags.
+
+| Artifact | K10 | K14 |
+|---|---|---|
+| Checkpoint | `epoch_1_step_1799` | `epoch_0_step_1999` |
+| Config SHA-256 | `01a1b0da511892e723767d4a54ac42182d249d5a12b94bcb9ce99fb7d65e1a00` | `9ff65c090012d7f61109567d2aef60033fbf3d5a56aee74322e99a36ac0d67ff` |
+| Adapter SHA-256 | `09979509f116b992eb50a6fa2fef8df371c56a264ec1fe5ccba303b4cc16124f` | `37b24188315345d699904f96c563ab015a889bd0d1b94e31a9a73830ae3662ec` |
+| Optimizer SHA-256 | `617988c32a925c20bc964073ee91d4b0a6e45c149c6a5151435a2816f733a1cc` | `782c4a30fc443532cd51fe9892cb2d0785b2f634c53f8e17c5aea6cc5a360ed6` |
+| RNG SHA-256 | `928f518d7eff1bc12c75f2214c8a8b0b61fc676637519cd523d6c35d76c3b3c4` | `928f518d7eff1bc12c75f2214c8a8b0b61fc676637519cd523d6c35d76c3b3c4` |
+| Dataloader SHA-256 | `4a990b9809deae38effcdea87ac8df76ab12bf91eefba31baa3e3517c265d7ef` | `aff34ba8aa0d31f78ee7986898356df272709b0565c37851d9bbcb5256d94cbf` |
+| Step scheduler SHA-256 | `3ee83cf6469d049fd8500c05f03a22e2a092831abeed50bb208985271927e78b` | `d8e3ff7ebd3f92ae71b1a56f7bf9c3132168ac35c10efa4a7b7c59ff89bfed27` |
+| W&B ID | `dedr4hqq` | `t1ifwwal` |
+
+```bash
+# Create isolated resume containers and checkpoint-side resume snapshots.
+sg docker -c \
+  'EPOCHS=2 RESUME=1 examples/vlm_finetune/gemma4/launch_p4_fixed_language_training.sh create all'
+
+# Continue the same W&B runs. The accepted busy-GPU override remains explicit.
+sg docker -c \
+  'EPOCHS=2 RESUME=1 ALLOW_BUSY_GPU=1 examples/vlm_finetune/gemma4/launch_p4_fixed_language_training.sh start all'
+
+# Inspect resumed containers and logs.
+sg docker -c \
+  'EPOCHS=2 RESUME=1 examples/vlm_finetune/gemma4/launch_p4_fixed_language_training.sh status all'
+```
 
 ## Monitoring
 

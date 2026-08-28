@@ -8,6 +8,7 @@ K10_GPU="${K10_GPU:-0}"
 K14_GPU="${K14_GPU:-1}"
 ALLOW_BUSY_GPU="${ALLOW_BUSY_GPU:-0}"
 EPOCHS="${EPOCHS:-1}"
+RESUME="${RESUME:-0}"
 
 ACTION="${1:-status}"
 ARM="${2:-all}"
@@ -26,7 +27,7 @@ Actions:
 
 Environment overrides:
     REPO_ROOT, EXPERIMENT_ROOT, IMAGE, K10_GPU, K14_GPU, ALLOW_BUSY_GPU,
-    EPOCHS (1 or 2; default 1)
+    EPOCHS (1 or 2; default 1), RESUME (0 or 1; default 0)
 
 For an exact reproduction, do not override IMAGE or recipe paths. W&B is
 enabled by the fixed CLI override recorded in this script because repository
@@ -44,6 +45,14 @@ case "$ARM" in
 esac
 if [[ "$EPOCHS" != "1" && "$EPOCHS" != "2" ]]; then
     echo "EPOCHS must be 1 or 2" >&2
+    exit 2
+fi
+if [[ "$RESUME" != "0" && "$RESUME" != "1" ]]; then
+    echo "RESUME must be 0 or 1" >&2
+    exit 2
+fi
+if [[ "$RESUME" == "1" && "$EPOCHS" != "2" ]]; then
+    echo "RESUME=1 is available only for EPOCHS=2" >&2
     exit 2
 fi
 if [[ "$ACTION" == "logs" && "$ARM" == "all" ]]; then
@@ -83,13 +92,25 @@ arm_values() {
             EXPECTED_RECIPE_SHA="10988900d83a81bfaee6dd5753caf6a74f968ada26a396f0223ed036564b895c"
             EXPECTED_STEPS=1681
             EXPECTED_WARMUP=168
+            EXPECTED_RESUME_CHECKPOINT=""
+            SNAPSHOT_DIR_NAME="launch-artifacts"
         else
-            CONTAINER_NAME="gemma4-e2b-k10-p4-5m-per-language-r16-2ep-v1"
-            RECIPE_REL="examples/vlm_finetune/gemma4/gemma4_e2b_k10_p4_5m_r16_2ep_nvidia_lr.yaml"
             CHECKPOINT_REL="gemma4-e2b-k10/p4-5m-per-language-r16-2ep-v1"
-            EXPECTED_RECIPE_SHA="f7b491be7649866ba8eb92f9fcc07d53aa9c630ea12f8bbc7f736270680a7a0e"
             EXPECTED_STEPS=3362
             EXPECTED_WARMUP=336
+            if [[ "$RESUME" == "1" ]]; then
+                CONTAINER_NAME="gemma4-e2b-k10-p4-5m-per-language-r16-2ep-v1-resume-step1799"
+                RECIPE_REL="examples/vlm_finetune/gemma4/gemma4_e2b_k10_p4_5m_r16_2ep_resume_step1799.yaml"
+                EXPECTED_RECIPE_SHA="5c2cf813e70848eb993011626ebe1f2e0c0e4098390652b8362c0a9c50f43e6b"
+                EXPECTED_RESUME_CHECKPOINT="epoch_1_step_1799"
+                SNAPSHOT_DIR_NAME="resume-launch-artifacts-step1799"
+            else
+                CONTAINER_NAME="gemma4-e2b-k10-p4-5m-per-language-r16-2ep-v1"
+                RECIPE_REL="examples/vlm_finetune/gemma4/gemma4_e2b_k10_p4_5m_r16_2ep_nvidia_lr.yaml"
+                EXPECTED_RECIPE_SHA="f7b491be7649866ba8eb92f9fcc07d53aa9c630ea12f8bbc7f736270680a7a0e"
+                EXPECTED_RESUME_CHECKPOINT=""
+                SNAPSHOT_DIR_NAME="launch-artifacts"
+            fi
         fi
     else
         GPU="$K14_GPU"
@@ -104,13 +125,25 @@ arm_values() {
             EXPECTED_RECIPE_SHA="71769f694a0dc3edc54094503a297858de6dac79697f0c380358c05c746eddf7"
             EXPECTED_STEPS=2354
             EXPECTED_WARMUP=235
+            EXPECTED_RESUME_CHECKPOINT=""
+            SNAPSHOT_DIR_NAME="launch-artifacts"
         else
-            CONTAINER_NAME="gemma4-e2b-k14-p4-5m-per-language-r16-2ep-v1"
-            RECIPE_REL="examples/vlm_finetune/gemma4/gemma4_e2b_k14_p4_5m_r16_2ep_nvidia_lr.yaml"
             CHECKPOINT_REL="gemma4-e2b-k14/p4-5m-per-language-r16-2ep-v1"
-            EXPECTED_RECIPE_SHA="8d0e2b8ef2e4211445e4f486d5ec1a7af9426409661c2b90b92c612e750f4c36"
             EXPECTED_STEPS=4708
             EXPECTED_WARMUP=470
+            if [[ "$RESUME" == "1" ]]; then
+                CONTAINER_NAME="gemma4-e2b-k14-p4-5m-per-language-r16-2ep-v1-resume-step1999"
+                RECIPE_REL="examples/vlm_finetune/gemma4/gemma4_e2b_k14_p4_5m_r16_2ep_resume_step1999.yaml"
+                EXPECTED_RECIPE_SHA="25673f08b16b650e3a6c7173cbefb1361b2ce50c33a2561516bbc0f14388b482"
+                EXPECTED_RESUME_CHECKPOINT="epoch_0_step_1999"
+                SNAPSHOT_DIR_NAME="resume-launch-artifacts-step1999"
+            else
+                CONTAINER_NAME="gemma4-e2b-k14-p4-5m-per-language-r16-2ep-v1"
+                RECIPE_REL="examples/vlm_finetune/gemma4/gemma4_e2b_k14_p4_5m_r16_2ep_nvidia_lr.yaml"
+                EXPECTED_RECIPE_SHA="8d0e2b8ef2e4211445e4f486d5ec1a7af9426409661c2b90b92c612e750f4c36"
+                EXPECTED_RESUME_CHECKPOINT=""
+                SNAPSHOT_DIR_NAME="launch-artifacts"
+            fi
         fi
     fi
     RECIPE_HOST="$REPO_ROOT/$RECIPE_REL"
@@ -167,7 +200,7 @@ verify_environment() {
 }
 
 snapshot_launch_artifacts() {
-    local snapshot_dir="$CHECKPOINT_HOST/launch-artifacts"
+    local snapshot_dir="$CHECKPOINT_HOST/$SNAPSHOT_DIR_NAME"
     mkdir -p "$snapshot_dir"
     cp "$RECIPE_HOST" "$snapshot_dir/recipe.yaml"
     cp "$REPO_ROOT/examples/vlm_finetune/gemma4/launch_p4_fixed_language_training.sh" "$snapshot_dir/"
@@ -181,6 +214,8 @@ snapshot_launch_artifacts() {
         echo "container=$CONTAINER_NAME"
         echo "gpu=$GPU"
         echo "epochs=$EPOCHS"
+        echo "resume=$RESUME"
+        echo "expected_resume_checkpoint=$EXPECTED_RESUME_CHECKPOINT"
         echo "allow_busy_gpu=$ALLOW_BUSY_GPU"
         echo "expected_optimizer_steps=$EXPECTED_STEPS"
         echo "expected_warmup_steps=$EXPECTED_WARMUP"
@@ -217,7 +252,15 @@ create_arm() {
         echo "Container already exists: $CONTAINER_NAME" >&2
         exit 1
     fi
-    if [[ -e "$CHECKPOINT_HOST" ]]; then
+    if [[ "$RESUME" == "1" ]]; then
+        require_path "$CHECKPOINT_HOST/$EXPECTED_RESUME_CHECKPOINT"
+        local latest_checkpoint
+        latest_checkpoint="$(readlink "$CHECKPOINT_HOST/LATEST")"
+        if [[ "$latest_checkpoint" != "$EXPECTED_RESUME_CHECKPOINT" ]]; then
+            echo "LATEST is $latest_checkpoint; expected $EXPECTED_RESUME_CHECKPOINT" >&2
+            exit 1
+        fi
+    elif [[ -e "$CHECKPOINT_HOST" ]]; then
         local unexpected_checkpoint_entry
         unexpected_checkpoint_entry="$(find "$CHECKPOINT_HOST" -mindepth 1 -maxdepth 1 ! -name launch-artifacts -print -quit)"
         if [[ -n "$unexpected_checkpoint_entry" ]]; then

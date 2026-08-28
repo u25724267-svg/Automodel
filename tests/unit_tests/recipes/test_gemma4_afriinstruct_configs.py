@@ -53,6 +53,8 @@ def test_afriinstruct_recipes_preserve_gemma4_e2b_text_only_contract() -> None:
         "gemma4_e2b_k14_p4_5m_r16_1ep_nvidia_lr.yaml",
         "gemma4_e2b_k10_p4_5m_r16_2ep_nvidia_lr.yaml",
         "gemma4_e2b_k14_p4_5m_r16_2ep_nvidia_lr.yaml",
+        "gemma4_e2b_k10_p4_5m_r16_2ep_resume_step1799.yaml",
+        "gemma4_e2b_k14_p4_5m_r16_2ep_resume_step1999.yaml",
     ):
         recipe = _load_recipe(name)
 
@@ -391,6 +393,44 @@ def test_fixed_language_two_epoch_recipes_only_change_duration_and_identity() ->
         assert two_epochs["wandb"]["dir"] == one_epoch["wandb"]["dir"]
         assert two_epochs["wandb"]["name"] == f"gemma4-e2b-{arm}-p4-5m-per-language-r16-2ep-v1"
         assert two_epochs["wandb"]["group"] == "gemma4-e2b-p4-5m-per-language-r16-2ep"
+
+
+def test_fixed_language_resume_recipes_restore_full_state_and_same_wandb_runs() -> None:
+    cases = {
+        "k10": ("1799", "dedr4hqq"),
+        "k14": ("1999", "t1ifwwal"),
+    }
+    for arm, (step, wandb_id) in cases.items():
+        original = _load_recipe(f"gemma4_e2b_{arm}_p4_5m_r16_2ep_nvidia_lr.yaml")
+        resume = _load_recipe(f"gemma4_e2b_{arm}_p4_5m_r16_2ep_resume_step{step}.yaml")
+
+        for section in (
+            "model",
+            "processor",
+            "peft",
+            "step_scheduler",
+            "dist_env",
+            "distributed",
+            "freeze_config",
+            "loss_fn",
+            "dataset",
+            "packed_sequence",
+            "dataloader",
+            "validation_dataset",
+            "validation_dataloader",
+            "optimizer",
+            "lr_scheduler",
+            "clip_grad_norm",
+            "rng",
+        ):
+            assert resume[section] == original[section]
+
+        assert resume["checkpoint"] == {**original["checkpoint"], "restore_from": "LATEST"}
+        for key in ("entity", "project", "name", "group", "dir"):
+            assert resume["wandb"][key] == original["wandb"][key]
+        assert resume["wandb"]["enable"] is False
+        assert resume["wandb"]["id"] == wandb_id
+        assert resume["wandb"]["resume"] == "must"
 
 
 def test_inkuba_v1_ablation_preserves_v1_training_policy() -> None:
