@@ -1,8 +1,10 @@
 # Gemma 4 experiment reproduction index
 
-Use this document to reproduce the eight completed full Gemma 4 African-language
-experiments. Smoke, qualification, interrupted, and resume-test runs are not
-part of the primary comparison.
+Use this document to reproduce the original eight-run Gemma 4 African-language
+comparison cohort. The current mixture definitions, exact language-task token
+allocations, and later completed runs are maintained in
+[DATA_MIXTURE_REGISTRY.md](DATA_MIXTURE_REGISTRY.md). Smoke, qualification,
+interrupted, and resume-test runs are not part of this historical comparison.
 
 ## Source checkout
 

@@ -1,0 +1,295 @@
+schema_version: 1
+updated: 2026-09-01
+scope: >-
+  Full and authoritative Gemma 4 E2B African-language training runs evidenced by
+  version-controlled reports or preserved local checkpoints. Smoke and short
+  qualification runs are excluded except for explicitly listed superseded runs.
+
+token_metrics:
+  prepared_text_tokens: >-
+    Gemma processor tokens stored as _text_tokens before the causal shift. This
+    is the allocation metric used in every language-task table below.
+  model_input_tokens: >-
+    Tokens presented after the VLM causal shift removes one token per record.
+  supervised_label_tokens: Tokens contributing to the answer-only loss.
+  packed_training_tokens: Non-padding tokens actually processed by training.
+
+tasks:
+  instruction: General instruction following, summarization, and mapped multitask prompts.
+  qa: Open-ended or extractive question answering.
+  translation: Machine translation, including directed language pairs.
+  classification: Sentiment, topic, hate-speech, and related classification.
+  ner: Named entity recognition.
+
+languages:
+  amh: Amharic
+  hau: Hausa
+  ibo: Igbo
+  kin: Kinyarwanda
+  lug: Luganda
+  sna: Shona
+  som: Somali
+  sot: Sesotho
+  swa: Swahili (Inkuba code)
+  swh: Swahili
+  twi: Twi
+  wol: Wolof
+  xho: isiXhosa
+  yor: Yoruba
+  zul: isiZulu
+
+mixtures:
+  afriinstruct_full_v1:
+    status: external_summary_unavailable
+    source: llama-lang-adapt/AfriInstruct-Data
+    source_revision: 0a6325e6806ffcd7b3baefcc3c6b2de435ac6e1e
+    materialized_records: 8795673
+    train_records: 8708033
+    validation_records: 87640
+    language_task_tokens: null
+    missing_detail: >-
+      The external summary and prepared shards are not present on this host, so
+      exact prepared tokens by language and task cannot be reconstructed.
+    selection:
+      - Complete train split with no language, task, or source filters.
+      - Remove malformed records and exact duplicate instruction/output pairs.
+      - Assign validation by deterministic content hash with seed 42 and fraction 0.01.
+    filtering:
+      malformed_records: 0
+      exact_duplicates_removed: 153415
+      benchmark_blocklist: false
+      limitation: Near-duplicate and templated examples may remain.
+    preprocessing:
+      - Normalize instruction, output, language, task, and source fields.
+      - Convert each pair to user/assistant conversation schema.
+      - Partition bounded JSONL shards by language and task.
+      - Add exact Gemma _text_tokens with scripts/precompute_tokens.py.
+    provenance:
+      - ../AFRIINSTRUCT_LORA_FULL_1K_RUN_REPORT.md
+      - ../README_afriinstruct.md
+      - ../../../../../tools/prepare_afriinstruct.py
+
+  inkuba_clean_v2:
+    status: external_summary_unavailable
+    languages: [hau, swa, xho, yor, zul]
+    tasks: [mmt, sentiment, topic, ner, pos]
+    task_weights: {mmt: 0.50, sentiment: 0.15, topic: 0.15, ner: 0.10, pos: 0.10}
+    planned_train_tokens: 100000000
+    language_task_tokens: null
+    missing_detail: >-
+      The external profile and summary are not present on this host. The exact
+      realized language-task allocation is therefore unavailable.
+    selection:
+      - Divide the train-token budget equally across five languages.
+      - Cap machine translation at 50 percent within each language.
+      - Give each observed source an equal share of its task budget.
+      - Select deterministically from profiled train and development partitions.
+    filtering:
+      - Reject AfriQA and SIB-200 by source.
+      - Reject benchmark-blocklist matches, unsupported tasks, malformed records, and script failures.
+      - Exclude QA because the available Inkuba QA source is AfriQA.
+    preprocessing:
+      - Normalize records to user/assistant conversations with language, task, source, and provenance.
+      - Profile exact Gemma token lengths by partition, language, task, and source.
+      - Materialize bounded shards with exact _text_tokens.
+    provenance:
+      - ../README_inkuba_afriinstruct_v2.md
+      - ../../../../../tools/prepare_inkuba.py
+
+  inkuba_afriinstruct_r32_v2:
+    status: external_summary_unavailable
+    components:
+      afriinstruct_clean_v2: 97500000
+      inkuba_clean_v2: 97500000
+    planned_train_tokens: 195000000
+    language_task_tokens: null
+    missing_detail: >-
+      The external mixture summary is not present. Exact component totals and
+      language-task allocations cannot be independently verified here.
+    selection:
+      - Select each component by stable content hash to within one record of 97.5M tokens.
+      - Build monitor validation with 2500 records from each component.
+    filtering:
+      - Require exact token metadata and benchmark-safe cleaned component pools.
+      - Reject records already selected from the other component by canonical digest.
+    preprocessing:
+      - Physically write selected records and report realized component shares.
+    provenance:
+      - ../README_inkuba_afriinstruct_v2.md
+      - ../../../../../tools/build_instruction_mixture.py
+
+  k6_p2_v2:
+    status: verified_local_summary
+    policy: p2_quality_constrained
+    summary_sha256: ac39fc5d90a2f53869fb790334472b2f9ce36482a0a82dbce226afd6aad4331c
+    train_records: 153273
+    prepared_text_tokens: 31348990
+    tasks: [instruction, qa, translation, classification, ner]
+    selection:
+      - Allocate by capped examples-proportional sampling with temperature 2.
+      - Apply quality weights, a 50 percent default source-family cap, and a 25 percent AfriInstruct anchor.
+      - Reallocate measured shortfalls and repeat only within the four-appearance cap.
+      - Round pool allocations by largest remainder and select by stable digest order.
+    filtering:
+      - Reject malformed, out-of-scope, benchmark-matching, exact cross-pool duplicate, unsupervised, and overlength records.
+      - Select validation only from unique records unused by training.
+    preprocessing:
+      - Normalize source-specific schemas to conversations plus language, task, source, direction, and entity metadata.
+      - Count prompt, supervised label, and prepared text tokens with the pinned Gemma processor.
+      - Balance AfriHate labels within the same repetition cap.
+    provenance:
+      summary: /home/casper_neo/ext_data/Casper/kseries-next-run/data/k6-sft/mixture-p2-v2/summary.json
+      profile: /home/casper_neo/ext_data/Casper/kseries-next-run/data/k6-sft/k6_sft_profile.yaml
+      workflow: ../README_k6_sft_preprocessing.md
+    language_task_tokens:
+      hau: {instruction: 3788873, qa: 336889, translation: 503249, classification: 342554, ner: 782391, total: 5753956}
+      ibo: {instruction: 647806, qa: 608583, translation: 383825, classification: 353610, ner: 2019587, total: 4013411}
+      kin: {instruction: 533637, qa: 0, translation: 427103, classification: 1816150, ner: 1633604, total: 4410494}
+      swh: {instruction: 1008475, qa: 1525487, translation: 484433, classification: 2136532, ner: 1815900, total: 6970827}
+      yor: {instruction: 3641428, qa: 522634, translation: 610235, classification: 445801, ner: 901058, total: 6121156}
+      zul: {instruction: 774218, qa: 1771104, translation: 525023, classification: 311453, ner: 697348, total: 4079146}
+
+  k10_p2_v1:
+    status: verified_local_summary
+    policy: p2_quality_constrained
+    summary_sha256: 775da5fc0d6481b50ed328e060933f39e31319f539df87a55696711c09d6cf95
+    train_records: 143579
+    prepared_text_tokens: 31349312
+    tasks: [instruction, qa, translation, classification, ner]
+    selection_and_filtering: Same P2 policy and gates as k6_p2_v2, expanded to ten languages and its accepted source registry.
+    provenance:
+      summary: /home/casper_neo/ext_data/Casper/kseries-next-run/data/k10-sft/mixture-p2-v1/summary.json
+      profile: /home/casper_neo/ext_data/Casper/kseries-next-run/data/k10-sft/k10_sft_profile.yaml
+      coverage_review: /home/casper_neo/ext_data/Casper/kseries-next-run/data/k10-sft/coverage_review.md
+    language_task_tokens:
+      amh: {instruction: 4234124, qa: 154456, translation: 280604, classification: 1378714, ner: 0, total: 6047898}
+      hau: {instruction: 1738635, qa: 202357, translation: 264901, classification: 203980, ner: 574220, total: 2984093}
+      ibo: {instruction: 317680, qa: 358655, translation: 203561, classification: 209504, ner: 1482942, total: 2572342}
+      kin: {instruction: 280008, qa: 0, translation: 230269, classification: 1079785, ner: 1200190, total: 2790252}
+      sna: {instruction: 361781, qa: 317614, translation: 277839, classification: 1922259, ner: 574587, total: 3454080}
+      swh: {instruction: 516866, qa: 771250, translation: 259134, classification: 1244430, ner: 1331264, total: 4122944}
+      wol: {instruction: 466376, qa: 138281, translation: 134693, classification: 0, ner: 297268, total: 1036618}
+      xho: {instruction: 316815, qa: 175072, translation: 199528, classification: 1155296, ner: 456911, total: 2303622}
+      yor: {instruction: 1944482, qa: 313386, translation: 321064, classification: 264693, ner: 634934, total: 3478559}
+      zul: {instruction: 537011, qa: 1044460, translation: 280125, classification: 184525, ner: 512783, total: 2558904}
+
+  k14_p3_final_v2:
+    status: verified_local_summary
+    policy: p3_token_stratified
+    summary_sha256: 98ea2249fe6cdc86e4db7fe689b96d35ddf85da7c0eff144665ee2ce5203e10a
+    train_records: 268251
+    prepared_text_tokens: 31353562
+    supervised_label_tokens: 12669914
+    tasks: [instruction, qa, translation, classification, ner]
+    selection_and_filtering: >-
+      P2 quality and contamination gates plus token-stratified language/task
+      allocation, deterministic strata, source-family caps, and at most four appearances.
+    provenance:
+      summary: /home/casper_neo/ext_data/Casper/kseries-next-run/data/k14-sft/mixture-p3-final-v2/summary.json
+      profile: /home/casper_neo/ext_data/Casper/kseries-next-run/data/k14-sft/k14_sft_profile.yaml
+      audit: /home/casper_neo/ext_data/Casper/kseries-next-run/data/k14-sft/final_audit.json
+    language_task_tokens:
+      amh: {instruction: 759468, qa: 372183, translation: 226264, classification: 374530, ner: 431391, total: 2163836}
+      hau: {instruction: 763080, qa: 378131, translation: 220567, classification: 393539, ner: 560011, total: 2315328}
+      ibo: {instruction: 758556, qa: 374946, translation: 230834, classification: 403733, ner: 579939, total: 2348008}
+      kin: {instruction: 761047, qa: 35136, translation: 223806, classification: 406879, ner: 569223, total: 1996091}
+      lug: {instruction: 759650, qa: 374432, translation: 223481, classification: 376473, ner: 559886, total: 2293922}
+      sna: {instruction: 757882, qa: 374753, translation: 223998, classification: 387982, ner: 516599, total: 2261214}
+      som: {instruction: 754318, qa: 382131, translation: 223419, classification: 381418, ner: 531216, total: 2272502}
+      sot: {instruction: 758146, qa: 493550, translation: 225854, classification: 354364, ner: 559942, total: 2391856}
+      swh: {instruction: 746026, qa: 379717, translation: 218935, classification: 371254, ner: 555146, total: 2271078}
+      twi: {instruction: 756122, qa: 375255, translation: 226602, classification: 380950, ner: 573204, total: 2312133}
+      wol: {instruction: 493348, qa: 372207, translation: 224296, classification: 383483, ner: 570509, total: 2043843}
+      xho: {instruction: 759208, qa: 175072, translation: 221966, classification: 390995, ner: 570363, total: 2117604}
+      yor: {instruction: 718451, qa: 374696, translation: 218902, classification: 382791, ner: 559979, total: 2254819}
+      zul: {instruction: 757345, qa: 381137, translation: 222787, classification: 382775, ner: 567284, total: 2311328}
+
+  k10_p4_5m_v2:
+    status: verified_local_summary_and_audit
+    policy: p4_fixed_language_tokens
+    summary_sha256: 2b334e9050d0a6fec0e898d6bb13f792fe16bce467123349fe446d006333f668
+    audit_sha256: 27e81495c51619920bbbd1ac58219d90949543e7e0aadb788cce8d56dca1cb3b
+    train_records: 446727
+    unique_train_records: 342106
+    prepared_text_tokens: 50000000
+    model_input_tokens: 49553273
+    supervised_label_tokens: 17479939
+    selection_and_filtering: >-
+      Apply the P3 task prior independently within each language, redistribute
+      capacity shortfalls only among tasks in that language, then add or remove
+      validation-disjoint benchmark-safe records with an exact bounded subset
+      solver until every language has exactly 5M prepared tokens. Preserve quality
+      weights, source-family caps, deterministic strata, and four appearances.
+    validation: Frozen K10 P2 monitor; 30306 records, 9784477 tokens, zero train overlap.
+    provenance:
+      summary: /home/casper_neo/ext_data/Casper/kseries-next-run/data/k10-sft/mixture-p4-5m-per-language-v2/summary.json
+      audit: /home/casper_neo/ext_data/Casper/kseries-next-run/data/k10-sft/mixture-p4-5m-per-language-v2/final_audit.json
+      config: k10_p4_5m_per_language_profile.yaml
+      workflow: ../KSERIES_FIXED_LANGUAGE_DATA_REPRODUCTION.md
+    language_task_tokens:
+      amh: {instruction: 1776472, qa: 392368, translation: 545038, classification: 912462, ner: 1373660, total: 5000000}
+      hau: {instruction: 1647174, qa: 748792, translation: 488906, classification: 865890, ner: 1249238, total: 5000000}
+      ibo: {instruction: 1646238, qa: 750981, translation: 515508, classification: 817347, ner: 1269926, total: 5000000}
+      kin: {instruction: 1925123, qa: 35136, translation: 584732, classification: 987353, ner: 1467656, total: 5000000}
+      sna: {instruction: 1647250, qa: 737588, translation: 483458, classification: 852820, ner: 1278884, total: 5000000}
+      swh: {instruction: 1641546, qa: 761088, translation: 497664, classification: 812473, ner: 1287229, total: 5000000}
+      wol: {instruction: 493348, qa: 621732, translation: 824153, classification: 1402767, ner: 1658000, total: 5000000}
+      xho: {instruction: 1887309, qa: 175072, translation: 563846, classification: 930116, ner: 1443657, total: 5000000}
+      yor: {instruction: 1654510, qa: 679424, translation: 504973, classification: 920332, ner: 1240761, total: 5000000}
+      zul: {instruction: 1785412, qa: 812830, translation: 530833, classification: 506660, ner: 1364265, total: 5000000}
+
+  k14_p4_5m_v1:
+    status: verified_local_summary_and_audit
+    policy: p4_fixed_language_tokens
+    summary_sha256: 59f5d5bbbec279ab855431ff5ba0ba5fd9dce1c73e6cadc8a663ac51170a0d15
+    audit_sha256: a7a70645b094560f530f48b3db8f4bfce105fac3bea357109324b95fb16e7594
+    train_records: 604116
+    unique_train_records: 444095
+    prepared_text_tokens: 70000000
+    model_input_tokens: 69395884
+    supervised_label_tokens: 27699644
+    selection_and_filtering: Same exact per-language P4 process and gates as k10_p4_5m_v2.
+    validation: Frozen K14 P3 monitor; 23440 records, 6379444 tokens, zero train overlap.
+    provenance:
+      summary: /home/casper_neo/ext_data/Casper/kseries-next-run/data/k14-sft/mixture-p4-5m-per-language-v1/summary.json
+      audit: /home/casper_neo/ext_data/Casper/kseries-next-run/data/k14-sft/mixture-p4-5m-per-language-v1/final_audit.json
+      config: k14_p4_5m_per_language_profile.yaml
+      workflow: ../KSERIES_FIXED_LANGUAGE_DATA_REPRODUCTION.md
+    language_task_tokens:
+      amh: {instruction: 1776472, qa: 392368, translation: 545368, classification: 908594, ner: 1377198, total: 5000000}
+      hau: {instruction: 1647174, qa: 756234, translation: 487970, classification: 865890, ner: 1242732, total: 5000000}
+      ibo: {instruction: 1646724, qa: 750981, translation: 515508, classification: 816861, ner: 1269926, total: 5000000}
+      kin: {instruction: 1925123, qa: 35136, translation: 585014, classification: 987071, ner: 1467656, total: 5000000}
+      lug: {instruction: 1701713, qa: 695480, translation: 502398, classification: 887284, ner: 1213125, total: 5000000}
+      sna: {instruction: 1647250, qa: 737588, translation: 483458, classification: 846836, ner: 1284868, total: 5000000}
+      som: {instruction: 1627480, qa: 767504, translation: 505228, classification: 838423, ner: 1261365, total: 5000000}
+      sot: {instruction: 1844918, qa: 878399, translation: 559267, classification: 354364, ner: 1363052, total: 5000000}
+      swh: {instruction: 1647969, qa: 753848, translation: 496491, classification: 831590, ner: 1270102, total: 5000000}
+      twi: {instruction: 1644237, qa: 751062, translation: 501284, classification: 846852, ner: 1256565, total: 5000000}
+      wol: {instruction: 493348, qa: 621732, translation: 824153, classification: 1402767, ner: 1658000, total: 5000000}
+      xho: {instruction: 1887309, qa: 175072, translation: 563494, classification: 978041, ner: 1396084, total: 5000000}
+      yor: {instruction: 1638141, qa: 679424, translation: 503164, classification: 938510, ner: 1240761, total: 5000000}
+      zul: {instruction: 1785412, qa: 812830, translation: 530409, classification: 506660, ner: 1364689, total: 5000000}
+
+runs:
+  - {name: afriinstruct-full-r16-1k, status: completed, mixture: afriinstruct_full_v1, wandb_id: k5sc78hr, steps: 1000, epochs: null, packed_training_tokens: 31353533}
+  - {name: inkuba-only-v1-r16-1k, status: completed, mixture: inkuba_clean_v2, wandb_id: qfa8rk2r, steps: 1000, epochs: null, packed_training_tokens: null}
+  - {name: inkuba-afriinstruct-r32-3k, status: completed, mixture: inkuba_afriinstruct_r32_v2, wandb_id: y33vdowm, steps: 3000, epochs: null, packed_training_tokens: null}
+  - {name: k6-p2-r32-1k, status: completed, mixture: k6_p2_v2, wandb_id: fw1uvbfb, steps: 1000, epochs: approximately_1}
+  - {name: k10-p2-r32-1k, status: completed, mixture: k10_p2_v1, wandb_id: kje5g1e7, steps: 1000, epochs: approximately_1}
+  - {name: k14-p3-r32-1k, status: completed, mixture: k14_p3_final_v2, wandb_id: nvjz0y4j, steps: 1000, epochs: approximately_1}
+  - {name: k6-p2-r16-2ep-nvidia-lr, status: completed, mixture: k6_p2_v2, wandb_id: m8r79yjp, steps: 2116, epochs: 2, prepared_text_token_exposure: 62697980}
+  - {name: k10-p2-r32-2ep-original-lr, status: completed, mixture: k10_p2_v1, wandb_id: w9knou92, steps: 2116, epochs: 2, prepared_text_token_exposure: 62698624}
+  - {name: k10-p2-r16-2ep-nvidia-lr, status: completed, mixture: k10_p2_v1, wandb_id: vebv31eh, steps: 2116, epochs: 2, prepared_text_token_exposure: 62698624}
+  - {name: k14-p3-r16-2ep-nvidia-lr, status: completed, mixture: k14_p3_final_v2, wandb_id: zawhmm8g, steps: 2110, epochs: 2, prepared_text_token_exposure: 62707124}
+  - {name: k10-p4-5m-r16-2ep, status: completed, mixture: k10_p4_5m_v2, wandb_id: dedr4hqq, steps: 3362, epochs: 2, prepared_text_token_exposure: 100000000, model_input_token_exposure: 99106546}
+  - {name: k14-p4-5m-r16-2ep, status: completed, mixture: k14_p4_5m_v1, wandb_id: t1ifwwal, steps: 4708, epochs: 2, prepared_text_token_exposure: 140000000, model_input_token_exposure: 138791768}
+
+superseded_runs:
+  - {name: k10-p4-5m-r16-1ep-qualification, status: stopped_by_design, mixture: k10_p4_5m_v2, wandb_id: 97hpwt0r, final_step: 139}
+  - {name: k14-p4-5m-r16-1ep-qualification, status: stopped_by_design, mixture: k14_p4_5m_v1, wandb_id: eugmkhkk, final_step: 135}
+
+known_gaps:
+  - Exact language-task token allocations are unavailable for AfriInstruct and Inkuba mixtures whose summaries remain on the original host.
+  - Prepared, model-input, supervised-label, and packed-training token metrics are not interchangeable.
+  - The registry does not claim to enumerate smoke runs or every failed qualification attempt.

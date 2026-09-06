@@ -21,6 +21,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RECIPE_DIR = REPO_ROOT / "examples" / "vlm_finetune" / "gemma4"
+DATA_REGISTRY = RECIPE_DIR / "data" / "data_mixture_registry.yaml"
 
 
 def _load_recipe(name: str) -> dict:
@@ -35,6 +36,35 @@ def _load_env_example() -> dict[str, str]:
             key, value = line.split("=", maxsplit=1)
             entries[key] = value
     return entries
+
+
+def test_data_mixture_registry_has_consistent_run_references_and_token_totals() -> None:
+    registry = yaml.safe_load(DATA_REGISTRY.read_text(encoding="utf-8"))
+    mixtures = registry["mixtures"]
+    tasks = tuple(registry["tasks"])
+    runs = registry["runs"]
+
+    assert len(runs) == 12
+    assert len({run["wandb_id"] for run in runs}) == len(runs)
+
+    for run in runs + registry["superseded_runs"]:
+        assert run["mixture"] in mixtures
+
+    for mixture in mixtures.values():
+        language_task_tokens = mixture.get("language_task_tokens")
+        if language_task_tokens is None:
+            continue
+
+        for allocation in language_task_tokens.values():
+            assert allocation["total"] == sum(allocation[task] for task in tasks)
+        assert mixture["prepared_text_tokens"] == sum(
+            allocation["total"] for allocation in language_task_tokens.values()
+        )
+
+    for run in runs:
+        if "prepared_text_token_exposure" in run:
+            mixture = mixtures[run["mixture"]]
+            assert run["prepared_text_token_exposure"] == mixture["prepared_text_tokens"] * run["epochs"]
 
 
 def test_afriinstruct_recipes_preserve_gemma4_e2b_text_only_contract() -> None:
