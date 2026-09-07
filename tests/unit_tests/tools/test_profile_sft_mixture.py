@@ -23,6 +23,7 @@ from tools.profile_sft_mixture import (
     PlanningConfig,
     PoolConfig,
     TokenCounts,
+    _reconcile_nested_label_floor,
     _write_plans,
     build_mixture_plans,
     load_config,
@@ -143,6 +144,36 @@ def test_profile_excludes_fixed_validation_records(tmp_path: Path) -> None:
     assert profile["cells"]["train|hau|classification|afrihate"]["records"] == 1
 
 
+def test_profile_excludes_locked_train_records(tmp_path: Path) -> None:
+    locked = _row(1)
+    locked_counts = _counter(locked["messages"])
+    locked["_prompt_tokens"] = locked_counts.prompt
+    locked["_label_tokens"] = locked_counts.label
+    locked["_text_tokens"] = locked_counts.text
+    locked_manifest = _write_manifest(tmp_path / "locked", "train", [locked, locked])
+    candidate_manifest = _write_manifest(tmp_path, "candidate", [locked, _row(2)])
+    config = MixtureConfig(
+        model_id="test-tokenizer",
+        max_seq_length=10,
+        languages=("hau",),
+        tasks=("classification",),
+        pools=(PoolConfig("candidate", candidate_manifest, "candidate", "revision", "Apache-2.0", "human"),),
+        planning=PlanningConfig(packed_token_budget=10),
+        locked_train_manifest=locked_manifest,
+    )
+
+    profile = profile_mixture(config, token_counter=_counter, output_dir=tmp_path / "profile")
+
+    assert profile["locked_train_manifest"] == str(locked_manifest)
+    assert profile["locked_train_records"] == 2
+    assert profile["locked_train_unique_records"] == 1
+    assert profile["locked_train_text_tokens"] == locked_counts.text * 2
+    assert profile["locked_train_label_tokens"] == locked_counts.label * 2
+    assert profile["locked_train_max_repetitions"] == 2
+    assert profile["rejections"]["locked_train"] == 1
+    assert profile["cells"]["candidate|hau|classification|afrihate"]["records"] == 1
+
+
 def test_plans_use_capped_examples_and_afriinstruct_anchor(tmp_path: Path) -> None:
     new_manifest = _write_manifest(tmp_path, "new", [])
     afri_manifest = _write_manifest(tmp_path, "afri", [])
@@ -176,6 +207,150 @@ def test_plans_use_capped_examples_and_afriinstruct_anchor(tmp_path: Path) -> No
     for cell, values in quality["cells"].items():
         if values["target_records"] > 0 and cell.endswith("|classification"):
             assert values["fallback_share"] == pytest.approx(0.25)
+
+
+def test_nested_extension_plan_prefers_reference_source_then_same_cell_fallback(tmp_path: Path) -> None:
+    reference_summary = tmp_path / "summary.json"
+    reference_summary.write_text(
+        json.dumps({"train_allocations": {"original|hau|classification": {"tokens": 100}}}),
+        encoding="utf-8",
+    )
+    config = MixtureConfig(
+        model_id="test-tokenizer",
+        max_seq_length=10,
+        languages=("hau",),
+        tasks=("classification",),
+        pools=(
+            PoolConfig("original", tmp_path / "original.json", "original", "revision", "Apache-2.0", "human"),
+            PoolConfig("fallback", tmp_path / "fallback.json", "fallback", "revision", "Apache-2.0", "curated"),
+        ),
+        planning=PlanningConfig(packed_token_budget=50, max_epochs=1.0),
+        reference_train_summary=reference_summary,
+    )
+    profile = {
+        "cells": {
+            "original|hau|classification|original": {"records": 2, "text_tokens": 20, "label_tokens": 4},
+            "fallback|hau|classification|fallback": {"records": 10, "text_tokens": 100, "label_tokens": 20},
+        }
+    }
+
+    plan = build_mixture_plans(config, profile)["p2_nested_extension"]
+
+    assert plan["estimated_packed_tokens"] == pytest.approx(50)
+    assert plan["coverage_shortfall_tokens"] == pytest.approx(0)
+    assert plan["pool_allocations"]["original|hau|classification"]["target_tokens"] == pytest.approx(20)
+    assert plan["pool_allocations"]["fallback|hau|classification"]["target_tokens"] == pytest.approx(30)
+    assert plan["language_targets"]["hau"]["planned_tokens"] == pytest.approx(50)
+    _write_plans({"p2_nested_extension": plan}, tmp_path / "plans")
+    assert "Reference tokens" in (tmp_path / "plans" / "plans.md").read_text(encoding="utf-8")
+
+
+def test_nested_extension_plan_redistributes_exhausted_language_within_task(tmp_path: Path) -> None:
+    reference_summary = tmp_path / "summary.json"
+    reference_summary.write_text(
+        json.dumps(
+            {
+                "train_allocations": {
+                    "source|hau|classification": {"tokens": 100},
+                    "source|yor|classification": {"tokens": 100},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = MixtureConfig(
+        model_id="test-tokenizer",
+        max_seq_length=10,
+        languages=("hau", "yor"),
+        tasks=("classification",),
+        pools=(PoolConfig("source", tmp_path / "source.json", "source", "revision", "Apache-2.0", "human"),),
+        planning=PlanningConfig(packed_token_budget=100, max_epochs=1.0),
+        reference_train_summary=reference_summary,
+    )
+    profile = {
+        "cells": {
+            "source|yor|classification|source": {"records": 10, "text_tokens": 100, "label_tokens": 20},
+        }
+    }
+
+    plan = build_mixture_plans(config, profile)["p2_nested_extension"]
+
+    assert plan["estimated_packed_tokens"] == pytest.approx(100)
+    assert plan["coverage_shortfall_tokens"] == pytest.approx(0)
+    assert plan["language_targets"]["hau"]["deviation_tokens"] == pytest.approx(-50)
+    assert plan["language_targets"]["yor"]["deviation_tokens"] == pytest.approx(50)
+    assert plan["pool_allocations"]["source|yor|classification"]["target_tokens"] == pytest.approx(100)
+
+
+def test_nested_extension_plan_caps_mixed_data_at_reference_share(tmp_path: Path) -> None:
+    reference_summary = tmp_path / "summary.json"
+    reference_summary.write_text(
+        json.dumps(
+            {
+                "train_allocations": {
+                    "mixed|hau|classification": {"tokens": 50},
+                    "human|hau|classification": {"tokens": 50},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = MixtureConfig(
+        model_id="test-tokenizer",
+        max_seq_length=10,
+        languages=("hau",),
+        tasks=("classification",),
+        pools=(
+            PoolConfig("mixed", tmp_path / "mixed.json", "mixed", "revision", "mixed", "mixed"),
+            PoolConfig("human", tmp_path / "human.json", "human", "revision", "Apache-2.0", "human"),
+            PoolConfig("curated", tmp_path / "curated.json", "curated", "revision", "MIT", "curated"),
+        ),
+        planning=PlanningConfig(packed_token_budget=100, max_epochs=1.0),
+        reference_train_summary=reference_summary,
+    )
+    profile = {
+        "cells": {
+            "mixed|hau|classification|mixed": {"records": 100, "text_tokens": 1_000, "label_tokens": 200},
+            "curated|hau|classification|curated": {
+                "records": 100,
+                "text_tokens": 1_000,
+                "label_tokens": 200,
+            },
+        }
+    }
+
+    plan = build_mixture_plans(config, profile)["p2_nested_extension"]
+
+    assert plan["estimated_packed_tokens"] == pytest.approx(100)
+    assert plan["pool_allocations"]["mixed|hau|classification"]["target_tokens"] == pytest.approx(50)
+    assert plan["pool_allocations"]["curated|hau|classification"]["target_tokens"] == pytest.approx(50)
+    assert plan["lower_quality_excess_allowed"] is False
+
+
+def test_nested_label_reconciliation_preserves_reference_targets() -> None:
+    allocations = {
+        "low|hau|instruction": {"target_tokens": 80.0, "target_records": 8.0, "estimated_label_tokens": 8.0},
+        "high|yor|classification": {
+            "target_tokens": 20.0,
+            "target_records": 2.0,
+            "estimated_label_tokens": 18.0,
+        },
+    }
+
+    reconciliation = _reconcile_nested_label_floor(
+        allocations,
+        capacities={"low|hau|instruction": 100.0, "high|yor|classification": 100.0},
+        reference_targets={"low|hau|instruction": 50.0, "high|yor|classification": 20.0},
+        label_ratios={"low|hau|instruction": 0.1, "high|yor|classification": 0.9},
+        minimum_label_tokens=50,
+    )
+
+    assert allocations["low|hau|instruction"]["target_tokens"] == pytest.approx(50)
+    assert allocations["high|yor|classification"]["target_tokens"] == pytest.approx(50)
+    assert allocations["low|hau|instruction"]["target_records"] == pytest.approx(5)
+    assert allocations["high|yor|classification"]["target_records"] == pytest.approx(5)
+    assert reconciliation["moved_tokens"] == pytest.approx(30)
+    assert reconciliation["remaining_shortfall"] == pytest.approx(0)
 
 
 def test_quality_plan_uses_allocated_pool_lengths(tmp_path: Path) -> None:
@@ -424,6 +599,33 @@ planning:
         load_config(config_path)
 
 
+def test_load_config_resolves_locked_train_manifest(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+version: 1
+languages: [hau]
+tasks: [classification]
+locked_train_manifest: base/train_meta.json
+reference_train_summary: base/summary.json
+pools:
+  - name: source
+    manifest: train_meta.json
+    revision: abc123
+    license: Apache-2.0
+    quality_tier: human
+planning:
+  packed_token_budget: 1000
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.locked_train_manifest == (tmp_path / "base" / "train_meta.json").resolve()
+    assert config.reference_train_summary == (tmp_path / "base" / "summary.json").resolve()
+
+
 @pytest.mark.parametrize(
     ("filename", "language_count", "packed_budget", "minimum_labels", "validation_manifest"),
     (
@@ -468,6 +670,37 @@ def test_fixed_language_profile_configs_use_unified_registry(
     pool_names = {pool.name for pool in config.pools}
     assert "finerweb_k14" in pool_names
     assert "wolof_sentiment_filtered" in pool_names
+
+
+def test_k10_nested_profile_locks_p2_and_uses_only_unique_original_sources() -> None:
+    config = load_config(PROFILE_CONFIG_DIR / "k10_p2_nested_50m_profile.yaml")
+
+    assert config.planning.packed_token_budget == 18_650_688
+    assert config.planning.minimum_label_tokens == 5_658_730
+    assert config.planning.label_token_planning_margin == 100_000
+    assert config.planning.max_epochs == 1.0
+    assert config.planning.sampling_seed == 42
+    assert config.locked_train_max_repetitions == 4
+    assert config.locked_train_manifest == Path("/data/gemma4-k10/mixture-p2-v1/train_meta.json")
+    assert config.reference_train_summary == Path("/data/gemma4-k10/mixture-p2-v1/summary.json")
+    assert config.fixed_validation_manifest == Path("/data/gemma4-k10/mixture-p2-v1/validation_meta.json")
+    assert {pool.name for pool in config.pools} == {
+        "afridocmt",
+        "afrihate",
+        "afriinstruct",
+        "afrisenti",
+        "aya",
+        "digital_umuganda",
+        "hausa_voa_ner",
+        "kenswquad",
+        "kinnews",
+        "masakhaner",
+        "masakhanews",
+        "nchlt_zulu_ner",
+        "pontoon",
+        "swahili_news",
+        "yoruba_gv_ner",
+    }
 
 
 def test_load_config_rejects_unknown_quality_tier(tmp_path: Path) -> None:

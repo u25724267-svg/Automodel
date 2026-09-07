@@ -23,6 +23,7 @@ import logging
 import math
 import shutil
 import sqlite3
+from array import array
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
@@ -32,10 +33,12 @@ if __package__:
     from tools.benchmark_contamination import BenchmarkBlocklist
     from tools.profile_sft_mixture import (
         QUALITY_WEIGHTS,
+        LockedTrainStats,
         MixtureConfig,
         TokenCounts,
         _fixed_validation_digests,
         _iter_manifest_records,
+        _locked_train_stats,
         _make_token_counter,
         _normalize_record,
         _record_digest,
@@ -46,10 +49,12 @@ else:
     from benchmark_contamination import BenchmarkBlocklist
     from profile_sft_mixture import (
         QUALITY_WEIGHTS,
+        LockedTrainStats,
         MixtureConfig,
         TokenCounts,
         _fixed_validation_digests,
         _iter_manifest_records,
+        _locked_train_stats,
         _make_token_counter,
         _normalize_record,
         _record_digest,
@@ -73,14 +78,24 @@ def _find_exact_token_subset(
 
     reachable = 1
     mask = (1 << (target_tokens + 1)) - 1
-    transitions: list[tuple[SubsetItem, int, int]] = []
+    predecessors = array("i", [-1]) * (target_tokens + 1)
+    predecessor_items = array("i", [-1]) * (target_tokens + 1)
+    items: list[SubsetItem] = []
     for item, tokens in candidates:
         if tokens <= 0 or tokens > target_tokens:
             continue
         added = ((reachable << tokens) & mask) & ~reachable
         if not added:
             continue
-        transitions.append((item, tokens, added))
+        item_index = len(items)
+        items.append(item)
+        pending = added
+        while pending:
+            bit = pending & -pending
+            total = bit.bit_length() - 1
+            predecessors[total] = total - tokens
+            predecessor_items[total] = item_index
+            pending ^= bit
         reachable |= added
         if reachable & (1 << target_tokens):
             break
@@ -89,14 +104,13 @@ def _find_exact_token_subset(
 
     selected: list[SubsetItem] = []
     remaining = target_tokens
-    for item, tokens, added in reversed(transitions):
-        if added & (1 << remaining):
-            selected.append(item)
-            remaining -= tokens
-            if remaining == 0:
-                break
-    if remaining:
-        raise RuntimeError(f"Could not reconstruct exact {target_tokens}-token subset")
+    while remaining:
+        item_index = predecessor_items[remaining]
+        previous = predecessors[remaining]
+        if item_index < 0 or previous < 0:
+            raise RuntimeError(f"Could not reconstruct exact {target_tokens}-token subset")
+        selected.append(items[item_index])
+        remaining = previous
     selected.reverse()
     return selected
 
@@ -127,7 +141,7 @@ class _OutputWriter:
             }
         handle = self._handles.get(path)
         if handle is None:
-            handle = path.open("a", encoding="utf-8")
+            handle = path.open("x", encoding="utf-8")
             self._handles[path] = handle
         handle.write(payload + "\n")
         self._states[key] = (shard_index, records_in_shard + 1)
@@ -178,6 +192,7 @@ def _build_candidates(
     benchmark_blocklist: Path,
     output_dir: Path,
     token_counter: TokenCounter,
+    locked_train: LockedTrainStats,
 ) -> dict[str, Any]:
     database_path = output_dir / ".mixture.sqlite3"
     connection = sqlite3.connect(database_path)
@@ -193,6 +208,8 @@ def _build_candidates(
     rejections: Counter[str] = Counter()
     available: dict[str, Counter[str]] = defaultdict(Counter)
     fixed_validation_digests = _fixed_validation_digests(config.fixed_validation_manifest)
+    if locked_train.digests & fixed_validation_digests:
+        raise ValueError("Locked training and fixed validation manifests overlap")
     with BenchmarkBlocklist(benchmark_blocklist, mode="read-only") as blocklist:
         ordered_pools = sorted(config.pools, key=lambda pool: (-QUALITY_WEIGHTS[pool.quality_tier], pool.name))
         for pool in ordered_pools:
@@ -212,6 +229,9 @@ def _build_candidates(
                 digest = _record_digest(record)
                 if digest in fixed_validation_digests:
                     rejections["fixed_validation"] += 1
+                    continue
+                if digest in locked_train.digests:
+                    rejections["locked_train"] += 1
                     continue
                 counts = token_counter(record["messages"])
                 if counts.label <= 0 or counts.text <= 0 or counts.prompt < 0:
@@ -575,6 +595,165 @@ def _reconcile_fixed_language_tokens(
     return reconciliation
 
 
+def _reconcile_total_tokens(
+    output_dir: Path,
+    policy_plan: Mapping[str, Any],
+    config: MixtureConfig,
+) -> dict[str, int]:
+    target_tokens = config.planning.packed_token_budget
+    pool_quality = {pool.name: pool.quality_tier for pool in config.pools}
+    connection = sqlite3.connect(output_dir / ".mixture.sqlite3")
+    try:
+        before_tokens = connection.execute(
+            "SELECT COALESCE(SUM(c.tokens), 0) FROM selections AS s JOIN candidates AS c ON c.digest = s.digest"
+        ).fetchone()[0]
+        current_tokens = {
+            f"{pool}|{language}|{task}": tokens
+            for pool, language, task, tokens in connection.execute(
+                "SELECT c.pool, c.lang, c.task, SUM(c.tokens) FROM selections AS s "
+                "JOIN candidates AS c ON c.digest = s.digest GROUP BY c.pool, c.lang, c.task"
+            )
+        }
+        plan_targets = {
+            key: float(values.get("target_tokens", 0.0)) for key, values in policy_plan["pool_allocations"].items()
+        }
+        added_records = 0
+        removed_records = 0
+        if before_tokens < target_tokens:
+            available_keys = {
+                f"{pool}|{language}|{task}"
+                for pool, language, task in connection.execute(
+                    "SELECT DISTINCT pool, lang, task FROM candidates WHERE selected = 0"
+                )
+                if f"{pool}|{language}|{task}" in plan_targets and pool_quality[pool] in {"human", "curated"}
+            }
+            allocation_keys = sorted(
+                available_keys,
+                key=lambda key: (current_tokens.get(key, 0) - plan_targets.get(key, 0.0), key),
+            )
+            additions = _find_exact_token_subset(
+                _addition_candidates(connection, allocation_keys),
+                target_tokens - before_tokens,
+            )
+            if additions is None:
+                raise ValueError(f"Cannot reconcile extension from {before_tokens} to {target_tokens} tokens")
+            connection.executemany("INSERT INTO selections (digest) VALUES (?)", ((digest,) for digest in additions))
+            connection.executemany(
+                "UPDATE candidates SET selected = 1 WHERE digest = ?", ((digest,) for digest in additions)
+            )
+            added_records = len(additions)
+        elif before_tokens > target_tokens:
+            allocation_keys = sorted(
+                (key for key in current_tokens if current_tokens[key] > plan_targets.get(key, 0.0)),
+                key=lambda key: (-(current_tokens[key] - plan_targets.get(key, 0.0)), key),
+            )
+            removals = _find_exact_token_subset(
+                _removal_candidates(connection, allocation_keys),
+                before_tokens - target_tokens,
+            )
+            if removals is None:
+                raise ValueError(f"Cannot reconcile extension from {before_tokens} to {target_tokens} tokens")
+            removed_digests = [
+                connection.execute("SELECT digest FROM selections WHERE sequence = ?", (sequence,)).fetchone()[0]
+                for sequence in removals
+            ]
+            connection.executemany("DELETE FROM selections WHERE sequence = ?", ((sequence,) for sequence in removals))
+            connection.executemany(
+                "UPDATE candidates SET selected = EXISTS("
+                "SELECT 1 FROM selections WHERE selections.digest = candidates.digest) WHERE digest = ?",
+                ((digest,) for digest in removed_digests),
+            )
+            removed_records = len(removals)
+
+        after_tokens = connection.execute(
+            "SELECT COALESCE(SUM(c.tokens), 0) FROM selections AS s JOIN candidates AS c ON c.digest = s.digest"
+        ).fetchone()[0]
+        if after_tokens != target_tokens:
+            raise RuntimeError(f"Reconciled extension to {after_tokens} tokens; expected {target_tokens}")
+        connection.commit()
+    finally:
+        connection.close()
+    return {
+        "target_tokens": target_tokens,
+        "before_tokens": before_tokens,
+        "added_records": added_records,
+        "removed_records": removed_records,
+        "after_tokens": after_tokens,
+    }
+
+
+def _trim_lower_quality_allocations(
+    output_dir: Path,
+    policy_plan: Mapping[str, Any],
+    config: MixtureConfig,
+) -> dict[str, dict[str, int]]:
+    pool_quality = {pool.name: pool.quality_tier for pool in config.pools}
+    connection = sqlite3.connect(output_dir / ".mixture.sqlite3")
+    trimming: dict[str, dict[str, int]] = {}
+    try:
+        for key, values in sorted(policy_plan["pool_allocations"].items()):
+            pool, language, task = key.split("|", maxsplit=2)
+            if pool_quality[pool] in {"human", "curated"}:
+                continue
+            target_tokens = math.ceil(float(values["target_tokens"]))
+            rows = connection.execute(
+                "SELECT s.sequence, c.digest, c.tokens FROM selections AS s "
+                "JOIN candidates AS c ON c.digest = s.digest "
+                "WHERE c.pool = ? AND c.lang = ? AND c.task = ? ORDER BY s.sequence",
+                (pool, language, task),
+            ).fetchall()
+            before_tokens = sum(tokens for _, _, tokens in rows)
+            if before_tokens <= target_tokens:
+                continue
+            excess = before_tokens - target_tokens
+            exact = _find_exact_token_subset(((sequence, tokens) for sequence, _, tokens in rows), excess)
+            if exact is not None:
+                removals = exact
+            else:
+                covering = sorted(
+                    ((tokens, sequence) for sequence, _, tokens in rows if tokens >= excess),
+                    key=lambda item: (item[0], item[1]),
+                )
+                if covering:
+                    removals = [covering[0][1]]
+                else:
+                    removals = []
+                    removed_tokens = 0
+                    for sequence, _, tokens in sorted(rows, key=lambda row: (-row[2], row[0])):
+                        removals.append(sequence)
+                        removed_tokens += tokens
+                        if removed_tokens >= excess:
+                            break
+            removed_digests = [
+                connection.execute("SELECT digest FROM selections WHERE sequence = ?", (sequence,)).fetchone()[0]
+                for sequence in removals
+            ]
+            connection.executemany("DELETE FROM selections WHERE sequence = ?", ((sequence,) for sequence in removals))
+            connection.executemany(
+                "UPDATE candidates SET selected = EXISTS("
+                "SELECT 1 FROM selections WHERE selections.digest = candidates.digest) WHERE digest = ?",
+                ((digest,) for digest in removed_digests),
+            )
+            after_tokens = connection.execute(
+                "SELECT COALESCE(SUM(c.tokens), 0) FROM selections AS s "
+                "JOIN candidates AS c ON c.digest = s.digest "
+                "WHERE c.pool = ? AND c.lang = ? AND c.task = ?",
+                (pool, language, task),
+            ).fetchone()[0]
+            if after_tokens > target_tokens:
+                raise RuntimeError(f"Could not trim lower-quality allocation to its plan cap: {key}")
+            trimming[key] = {
+                "target_tokens": target_tokens,
+                "before_tokens": before_tokens,
+                "removed_records": len(removals),
+                "after_tokens": after_tokens,
+            }
+        connection.commit()
+    finally:
+        connection.close()
+    return trimming
+
+
 def _summarize_train_records(
     output_dir: Path,
 ) -> tuple[dict[str, dict[str, Any]], int, int, int]:
@@ -619,14 +798,14 @@ def _summarize_train_records(
     return dict(sorted(selected.items())), train_records, train_tokens, train_label_tokens
 
 
-def _write_train_records(output_dir: Path, writer: _OutputWriter) -> None:
+def _write_train_records(output_dir: Path, writer: _OutputWriter, pool_prefix: str = "") -> None:
     connection = sqlite3.connect(output_dir / ".mixture.sqlite3")
     try:
         for pool, payload in connection.execute(
             "SELECT c.pool, c.payload FROM selections AS s "
             "JOIN candidates AS c ON c.digest = s.digest ORDER BY s.sequence"
         ):
-            writer.write("train", pool, payload)
+            writer.write("train", f"{pool_prefix}{pool}", payload)
     finally:
         connection.close()
 
@@ -684,6 +863,8 @@ def _copy_fixed_validation(
             raise FileNotFoundError(f"Fixed validation shard not found: {source}")
         if destination in copied_paths:
             raise ValueError(f"Duplicate fixed validation shard path: {relative_path}")
+        if destination.exists():
+            raise FileExistsError(f"Fixed validation shard collides with output: {relative_path}")
         copied_paths.add(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
@@ -705,6 +886,33 @@ def _copy_fixed_validation(
     return dict(selected), total_records, total_tokens
 
 
+def _copy_locked_train(manifest_path: Path, output_dir: Path) -> dict[str, dict[str, Any]]:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError(f"Locked training manifest must be a mapping: {manifest_path}")
+    source_root = manifest_path.parent.resolve()
+    output_root = output_dir.resolve()
+    copied_paths: set[Path] = set()
+    for entry in manifest.values():
+        relative_path = Path(entry["file_name"])
+        if relative_path.is_absolute():
+            raise ValueError(f"Locked training shard path must be relative: {relative_path}")
+        source = (source_root / relative_path).resolve()
+        destination = (output_root / relative_path).resolve()
+        if source_root not in source.parents or output_root not in destination.parents:
+            raise ValueError(f"Locked training shard escapes its root: {relative_path}")
+        if not source.is_file():
+            raise FileNotFoundError(f"Locked training shard not found: {source}")
+        if destination in copied_paths:
+            raise ValueError(f"Duplicate locked training shard path: {relative_path}")
+        if destination.exists():
+            raise FileExistsError(f"Locked training shard collides with output: {relative_path}")
+        copied_paths.add(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+    return manifest
+
+
 def build_mixture(
     *,
     config_path: Path,
@@ -718,6 +926,18 @@ def build_mixture(
 ) -> dict[str, Any]:
     """Build a deterministic training mixture and disjoint validation monitor."""
     config = load_config(config_path)
+    if config.reference_train_summary is not None and policy != "p2_nested_extension":
+        raise ValueError("reference_train_summary requires policy p2_nested_extension")
+    if policy == "p2_nested_extension" and (
+        config.reference_train_summary is None or config.locked_train_manifest is None
+    ):
+        raise ValueError("p2_nested_extension requires reference_train_summary and locked_train_manifest")
+    locked_train = _locked_train_stats(config.locked_train_manifest)
+    if locked_train.max_repetitions > config.locked_train_max_repetitions:
+        raise ValueError(
+            f"Locked training manifest repeats a record {locked_train.max_repetitions} times; "
+            f"maximum is {config.locked_train_max_repetitions}"
+        )
     plans = json.loads(plan_path.read_text(encoding="utf-8"))
     if policy not in plans:
         raise ValueError(f"Unknown plan policy: {policy}")
@@ -736,6 +956,7 @@ def build_mixture(
             benchmark_blocklist,
             output_dir,
             token_counter or _make_token_counter(config.model_id),
+            locked_train,
         )
         policy_plan = plans[policy]
         if policy_plan.get("coverage_shortfall_tokens", 0) > 1e-6:
@@ -747,16 +968,41 @@ def build_mixture(
             policy_plan,
             config.planning.max_epochs,
         )
+        lower_quality_trimming = (
+            _trim_lower_quality_allocations(output_dir, policy_plan, config) if policy == "p2_nested_extension" else {}
+        )
         reconciliation = (
             _reconcile_fixed_language_tokens(output_dir, policy_plan) if policy == "p4_fixed_language_tokens" else {}
         )
-        train, train_records, train_tokens, train_label_tokens = _summarize_train_records(output_dir)
-        if train_label_tokens < config.planning.minimum_label_tokens:
+        extension_reconciliation = (
+            _reconcile_total_tokens(output_dir, policy_plan, config) if config.locked_train_manifest is not None else {}
+        )
+        train, extension_records, extension_tokens, extension_label_tokens = _summarize_train_records(output_dir)
+        if policy == "p2_nested_extension":
+            plan_allocations = policy_plan["pool_allocations"]
+            pool_quality = {pool.name: pool.quality_tier for pool in config.pools}
+            for key, values in train.items():
+                if key not in plan_allocations:
+                    raise ValueError(f"Nested extension materialized an unplanned allocation: {key}")
+                pool = key.split("|", maxsplit=1)[0]
+                if values["max_repetitions"] > math.floor(config.planning.max_epochs + 1e-9):
+                    raise ValueError(f"Nested extension repetition cap exceeded for {key}")
+                if pool_quality[pool] not in {"human", "curated"}:
+                    maximum_tokens = math.ceil(float(plan_allocations[key]["target_tokens"]))
+                    if values["tokens"] > maximum_tokens:
+                        raise ValueError(f"Lower-quality allocation exceeded its plan cap: {key}")
+        if extension_label_tokens < config.planning.minimum_label_tokens:
             raise ValueError(
-                f"Materialized {train_label_tokens} label tokens; "
+                f"Materialized {extension_label_tokens} label tokens; "
                 f"requires at least {config.planning.minimum_label_tokens}"
             )
-        _write_train_records(output_dir, writer)
+        if config.locked_train_manifest is not None:
+            writer.manifests["train"].update(_copy_locked_train(config.locked_train_manifest, output_dir))
+        _write_train_records(
+            output_dir,
+            writer,
+            pool_prefix="extension-" if config.locked_train_manifest is not None else "",
+        )
         if config.fixed_validation_manifest is not None:
             validation, validation_records, validation_tokens = _copy_fixed_validation(
                 config.fixed_validation_manifest,
@@ -776,22 +1022,45 @@ def build_mixture(
     _write_manifest(output_dir, "train", writer.manifests["train"])
     if config.fixed_validation_manifest is None:
         _write_manifest(output_dir, "validation", writer.manifests["validation"])
-    planned_tokens = float(plans[policy]["estimated_packed_tokens"])
+    planned_extension_tokens = (
+        float(config.planning.packed_token_budget)
+        if config.locked_train_manifest is not None
+        else float(plans[policy]["estimated_packed_tokens"])
+    )
+    train_records = locked_train.records + extension_records
+    train_tokens = locked_train.text_tokens + extension_tokens
+    train_label_tokens = locked_train.label_tokens + extension_label_tokens
+    planned_tokens = locked_train.text_tokens + planned_extension_tokens
     summary = {
         "policy": policy,
         "config_path": str(config_path),
         "plan_path": str(plan_path),
         "planned_train_tokens": planned_tokens,
+        "planned_extension_tokens": planned_extension_tokens,
+        "base_train_records": locked_train.records,
+        "base_train_unique_records": len(locked_train.digests),
+        "base_train_tokens": locked_train.text_tokens,
+        "base_train_label_tokens": locked_train.label_tokens,
+        "base_train_max_repetitions": locked_train.max_repetitions,
+        "extension_train_records": extension_records,
+        "extension_train_tokens": extension_tokens,
+        "extension_train_label_tokens": extension_label_tokens,
+        "extension_token_deviation": extension_tokens - planned_extension_tokens,
         "train_total_records": train_records,
         "train_total_tokens": train_tokens,
         "train_total_label_tokens": train_label_tokens,
         "train_token_deviation": train_tokens - planned_tokens,
         "language_reconciliation": reconciliation,
+        "extension_reconciliation": extension_reconciliation,
+        "lower_quality_trimming": lower_quality_trimming,
         "validation_total_records": validation_records,
         "validation_total_tokens": validation_tokens,
         "fixed_validation_manifest": (
             str(config.fixed_validation_manifest) if config.fixed_validation_manifest is not None else None
         ),
+        "locked_train_manifest": str(config.locked_train_manifest)
+        if config.locked_train_manifest is not None
+        else None,
         "train_allocations": train,
         "validation_per_pool": validation,
         **candidate_summary,

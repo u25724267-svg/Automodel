@@ -173,6 +173,41 @@ mixtures:
       yor: {instruction: 1944482, qa: 313386, translation: 321064, classification: 264693, ner: 634934, total: 3478559}
       zul: {instruction: 537011, qa: 1044460, translation: 280125, classification: 184525, ner: 512783, total: 2558904}
 
+  k10_p2_nested_50m_v1:
+    status: verified_local_summary_and_audit
+    policy: p2_nested_extension
+    summary_sha256: 7c4986dc03d2aaef07d6887641475665a29e0de6755db2b13128cbfd91d6de22
+    audit_sha256: 12ebd9e7ce63f7c14da8db473dae49fc9f338b06f83e617cc61b6fe62c681acd
+    train_records: 254954
+    unique_train_records: 233687
+    prepared_text_tokens: 50000000
+    supervised_label_tokens: 15211624
+    tasks: [instruction, qa, translation, classification, ner]
+    quality_tokens: {human: 24349617, curated: 3664783, mixed: 21985600, silver: 0, synthetic: 0}
+    selection_and_filtering: >-
+      Copy accepted K10 P2 v1 unchanged, then add exactly 18,650,688 unique
+      benchmark-safe and validation-disjoint tokens from the original 15 P2 pools.
+      Scale P2 language-task-source allocations, cap mixed data at its scaled
+      reference target, and use human then curated records for capacity and label
+      reconciliation. Preserve the P2 empty cells and maximum four base appearances.
+    provenance:
+      summary: /home/casper_neo/ext_data/Casper/kseries-next-run/data/k10-sft/mixture-p2-nested-50m-v1/summary.json
+      audit: /home/casper_neo/ext_data/Casper/kseries-next-run/data/k10-sft/mixture-p2-nested-50m-v1/final_audit.json
+      profile: /home/casper_neo/ext_data/Casper/kseries-next-run/data/k10-sft/profile-p2-nested-50m-a/profile.json
+      plan: /home/casper_neo/ext_data/Casper/kseries-next-run/data/k10-sft/plans-p2-nested-50m/plans.json
+      preregistration: ../K10_P2_NESTED_50M_DATA_PREREGISTRATION.md
+    language_task_tokens:
+      amh: {instruction: 6701386, qa: 154456, translation: 982603, classification: 1797443, ner: 0, total: 9635888}
+      hau: {instruction: 2459042, qa: 275196, translation: 886951, classification: 364079, ner: 763876, total: 4749144}
+      ibo: {instruction: 418252, qa: 358655, translation: 295408, classification: 293010, ner: 2365191, total: 3730516}
+      kin: {instruction: 446594, qa: 0, translation: 366990, classification: 2335455, ner: 1914221, total: 5063260}
+      sna: {instruction: 470899, qa: 317614, translation: 277839, classification: 1951879, ner: 986762, total: 4004993}
+      swh: {instruction: 784406, qa: 2305321, translation: 414277, classification: 2846368, ner: 2067550, total: 8417922}
+      wol: {instruction: 466376, qa: 155433, translation: 269552, classification: 0, ner: 414500, total: 1305861}
+      xho: {instruction: 444651, qa: 175072, translation: 646428, classification: 1242614, ner: 778347, total: 3287112}
+      yor: {instruction: 2923989, qa: 313386, translation: 1296893, classification: 347600, ner: 843306, total: 5725174}
+      zul: {instruction: 659134, qa: 1044460, translation: 896939, classification: 184525, ner: 1295072, total: 4080130}
+
   k14_p3_final_v2:
     status: verified_local_summary
     policy: p3_token_stratified

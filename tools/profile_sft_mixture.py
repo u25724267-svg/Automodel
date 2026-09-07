@@ -79,6 +79,7 @@ class PlanningConfig:
     fallback_base_share: float = 0.0
     task_token_shares: Mapping[str, float] = field(default_factory=dict)
     minimum_label_tokens: int = 0
+    label_token_planning_margin: int = 0
     sampling_seed: int = 42
     minimum_cell_token_share: float = 0.6
 
@@ -94,7 +95,21 @@ class MixtureConfig:
     pools: tuple[PoolConfig, ...]
     planning: PlanningConfig
     fixed_validation_manifest: Path | None = None
+    locked_train_manifest: Path | None = None
+    locked_train_max_repetitions: int = 4
+    reference_train_summary: Path | None = None
     review_samples_per_cell: int = 20
+
+
+@dataclass(frozen=True)
+class LockedTrainStats:
+    """Validated identity and token totals for a locked training manifest."""
+
+    digests: frozenset[bytes]
+    records: int
+    text_tokens: int
+    label_tokens: int
+    max_repetitions: int
 
 
 @dataclass
@@ -216,6 +231,14 @@ def load_config(path: Path) -> MixtureConfig:
     fixed_validation_manifest = (
         (path.parent / str(fixed_validation_value)).resolve() if fixed_validation_value is not None else None
     )
+    locked_train_value = raw.get("locked_train_manifest")
+    locked_train_manifest = (
+        (path.parent / str(locked_train_value)).resolve() if locked_train_value is not None else None
+    )
+    reference_summary_value = raw.get("reference_train_summary")
+    reference_train_summary = (
+        (path.parent / str(reference_summary_value)).resolve() if reference_summary_value is not None else None
+    )
     config = MixtureConfig(
         model_id=str(raw.get("model_id", "google/gemma-4-E2B-it")),
         max_seq_length=int(raw.get("max_seq_length", 4096)),
@@ -240,10 +263,14 @@ def load_config(path: Path) -> MixtureConfig:
                 str(key): float(value) for key, value in planning_raw.get("task_token_shares", {}).items()
             },
             minimum_label_tokens=int(planning_raw.get("minimum_label_tokens", 0)),
+            label_token_planning_margin=int(planning_raw.get("label_token_planning_margin", 0)),
             sampling_seed=int(planning_raw.get("sampling_seed", 42)),
             minimum_cell_token_share=float(planning_raw.get("minimum_cell_token_share", 0.6)),
         ),
         fixed_validation_manifest=fixed_validation_manifest,
+        locked_train_manifest=locked_train_manifest,
+        locked_train_max_repetitions=int(raw.get("locked_train_max_repetitions", 4)),
+        reference_train_summary=reference_train_summary,
         review_samples_per_cell=int(raw.get("review_samples_per_cell", 20)),
     )
     _validate_config(config)
@@ -292,6 +319,10 @@ def _validate_config(config: MixtureConfig) -> None:
         raise ValueError("task_token_shares must be positive")
     if config.planning.minimum_label_tokens < 0:
         raise ValueError("minimum_label_tokens must be non-negative")
+    if config.planning.label_token_planning_margin < 0:
+        raise ValueError("label_token_planning_margin must be non-negative")
+    if config.locked_train_max_repetitions <= 0:
+        raise ValueError("locked_train_max_repetitions must be positive")
     if not 0 < config.planning.minimum_cell_token_share <= 1:
         raise ValueError("minimum_cell_token_share must be in (0, 1]")
 
@@ -357,6 +388,39 @@ def _fixed_validation_digests(manifest_path: Path | None) -> set[bytes]:
     return digests
 
 
+def _locked_train_stats(manifest_path: Path | None) -> LockedTrainStats:
+    if manifest_path is None:
+        return LockedTrainStats(frozenset(), 0, 0, 0, 0)
+    repetitions: Counter[bytes] = Counter()
+    token_counts: dict[bytes, tuple[int, int]] = {}
+    records = 0
+    text_tokens = 0
+    label_tokens = 0
+    for raw in _iter_manifest_records(manifest_path):
+        record, reason = _normalize_record(raw)
+        if record is None:
+            raise ValueError(f"Invalid locked training record in {manifest_path}: {reason or 'invalid'}")
+        text = raw.get("_text_tokens")
+        label = raw.get("_label_tokens")
+        if not isinstance(text, int) or text <= 0 or not isinstance(label, int) or label <= 0:
+            raise ValueError(f"Invalid token metadata in locked training manifest {manifest_path}")
+        digest = _record_digest(record)
+        previous_counts = token_counts.setdefault(digest, (text, label))
+        if previous_counts != (text, label):
+            raise ValueError(f"Inconsistent token metadata for a repeated locked record in {manifest_path}")
+        repetitions[digest] += 1
+        records += 1
+        text_tokens += text
+        label_tokens += label
+    return LockedTrainStats(
+        digests=frozenset(repetitions),
+        records=records,
+        text_tokens=text_tokens,
+        label_tokens=label_tokens,
+        max_repetitions=max(repetitions.values(), default=0),
+    )
+
+
 def _record_texts(record: Mapping[str, Any]) -> list[str]:
     return [str(message["content"]) for message in record["messages"]]
 
@@ -416,6 +480,9 @@ def profile_mixture(
     connection.execute("CREATE TABLE seen (digest BLOB PRIMARY KEY) WITHOUT ROWID")
     blocklist = BenchmarkBlocklist(benchmark_blocklist, mode="read-only") if benchmark_blocklist else None
     fixed_validation_digests = _fixed_validation_digests(config.fixed_validation_manifest)
+    locked_train = _locked_train_stats(config.locked_train_manifest)
+    if locked_train.digests & fixed_validation_digests:
+        raise ValueError("Locked training and fixed validation manifests overlap")
     stats: dict[str, CellStats] = defaultdict(CellStats)
     rejections: Counter[str] = Counter()
     sampler = _ReviewSampler(config.review_samples_per_cell)
@@ -442,6 +509,9 @@ def profile_mixture(
                 digest = _record_digest(record)
                 if digest in fixed_validation_digests:
                     rejections["fixed_validation"] += 1
+                    continue
+                if digest in locked_train.digests:
+                    rejections["locked_train"] += 1
                     continue
                 cursor = connection.execute("INSERT OR IGNORE INTO seen VALUES (?)", (digest,))
                 if cursor.rowcount == 0:
@@ -484,6 +554,14 @@ def profile_mixture(
             str(config.fixed_validation_manifest) if config.fixed_validation_manifest is not None else None
         ),
         "fixed_validation_records": len(fixed_validation_digests),
+        "locked_train_manifest": str(config.locked_train_manifest)
+        if config.locked_train_manifest is not None
+        else None,
+        "locked_train_records": locked_train.records,
+        "locked_train_unique_records": len(locked_train.digests),
+        "locked_train_text_tokens": locked_train.text_tokens,
+        "locked_train_label_tokens": locked_train.label_tokens,
+        "locked_train_max_repetitions": locked_train.max_repetitions,
         "rejections": dict(rejections.most_common()),
         "cells": {key: value.to_dict() for key, value in sorted(stats.items())},
         "coverage": {
@@ -547,7 +625,345 @@ def build_mixture_plans(config: MixtureConfig, profile: Mapping[str, Any]) -> di
         plans["p3_token_stratified"] = _build_token_stratified_plan(config, aggregates)
         if config.planning.language_token_budget:
             plans["p4_fixed_language_tokens"] = _build_fixed_language_token_plan(config, aggregates)
+    if config.reference_train_summary is not None:
+        reference_summary = json.loads(config.reference_train_summary.read_text(encoding="utf-8"))
+        plans["p2_nested_extension"] = _build_nested_extension_plan(config, aggregates, reference_summary)
     return plans
+
+
+def _build_nested_extension_plan(
+    config: MixtureConfig,
+    aggregates: Mapping[str, Any],
+    reference_summary: Mapping[str, Any],
+) -> dict[str, Any]:
+    raw_allocations = reference_summary.get("train_allocations")
+    if not isinstance(raw_allocations, dict) or not raw_allocations:
+        raise ValueError("reference_train_summary must contain non-empty train_allocations")
+    pool_map = {pool.name: pool for pool in config.pools}
+    reference_tokens: dict[str, float] = {}
+    for key, values in raw_allocations.items():
+        pool, language, task = key.split("|", maxsplit=2)
+        if pool not in pool_map or language not in config.languages or task not in config.tasks:
+            raise ValueError(f"Reference allocation is outside the configured registry: {key}")
+        tokens = float(values.get("tokens", 0))
+        if tokens > 0:
+            reference_tokens[key] = tokens
+    reference_total = sum(reference_tokens.values())
+    if reference_total <= 0:
+        raise ValueError("reference_train_summary has no positive allocation tokens")
+    scale = config.planning.packed_token_budget / reference_total
+    desired_pool_tokens = {key: tokens * scale for key, tokens in reference_tokens.items()}
+    desired_cell_tokens: Counter[str] = Counter()
+    desired_language_tokens: Counter[str] = Counter()
+    desired_task_tokens: Counter[str] = Counter()
+    for key, tokens in desired_pool_tokens.items():
+        _, language, task = key.split("|", maxsplit=2)
+        desired_cell_tokens[f"{language}|{task}"] += tokens
+        desired_language_tokens[language] += tokens
+        desired_task_tokens[task] += tokens
+
+    pool_capacities = {
+        f"{pool.name}|{language}|{task}": float(
+            aggregates["by_pool_language_task"].get(f"{pool.name}|{language}|{task}", {}).get("text_tokens", 0)
+        )
+        * config.planning.max_epochs
+        for pool in config.pools
+        for language in config.languages
+        for task in config.tasks
+    }
+    allocation_capacities = {
+        key: (
+            capacity
+            if pool_map[key.split("|", maxsplit=1)[0]].quality_tier in {"human", "curated"}
+            else min(capacity, desired_pool_tokens.get(key, 0.0))
+        )
+        for key, capacity in pool_capacities.items()
+    }
+    label_ratios = {
+        key: (
+            float(aggregates["by_pool_language_task"].get(key, {}).get("label_tokens", 0))
+            / float(aggregates["by_pool_language_task"].get(key, {}).get("text_tokens", 1))
+            if float(aggregates["by_pool_language_task"].get(key, {}).get("text_tokens", 0)) > 0
+            else 0.0
+        )
+        for key in pool_capacities
+    }
+    cell_capacities = {
+        f"{language}|{task}": sum(allocation_capacities[f"{pool.name}|{language}|{task}"] for pool in config.pools)
+        for language in config.languages
+        for task in config.tasks
+    }
+    cell_targets: dict[str, float] = {}
+    language_targets: dict[str, dict[str, float]] = {}
+    for language in config.languages:
+        language_cells = [f"{language}|{task}" for task in config.tasks]
+        for cell in language_cells:
+            cell_targets[cell] = min(desired_cell_tokens.get(cell, 0.0), cell_capacities[cell])
+        remaining = desired_language_tokens.get(language, 0.0) - sum(cell_targets[cell] for cell in language_cells)
+        residual_capacities = {cell: max(cell_capacities[cell] - cell_targets[cell], 0.0) for cell in language_cells}
+        weights = {cell: desired_cell_tokens.get(cell, 0.0) for cell in language_cells}
+        extras = _waterfill(remaining, residual_capacities, weights)
+        for cell, tokens in extras.items():
+            cell_targets[cell] += tokens
+        planned_tokens = sum(cell_targets[cell] for cell in language_cells)
+        shortfall = max(desired_language_tokens.get(language, 0.0) - planned_tokens, 0.0)
+        language_targets[language] = {
+            "target_tokens": desired_language_tokens.get(language, 0.0),
+            "planned_tokens": planned_tokens,
+            "shortfall_tokens": shortfall,
+        }
+
+    remaining_global = config.planning.packed_token_budget - sum(cell_targets.values())
+    if remaining_global > 1e-9:
+        current_task_tokens = {
+            task: sum(cell_targets[f"{language}|{task}"] for language in config.languages) for task in config.tasks
+        }
+        task_residual_capacities = {
+            task: sum(
+                max(cell_capacities[f"{language}|{task}"] - cell_targets[f"{language}|{task}"], 0.0)
+                for language in config.languages
+            )
+            for task in config.tasks
+        }
+        task_extras = _waterfill(
+            remaining_global,
+            task_residual_capacities,
+            {task: max(desired_task_tokens[task] - current_task_tokens[task], 0.0) for task in config.tasks},
+        )
+        for task, task_extra in task_extras.items():
+            task_cells = [f"{language}|{task}" for language in config.languages]
+            cell_extras = _waterfill(
+                task_extra,
+                {cell: max(cell_capacities[cell] - cell_targets[cell], 0.0) for cell in task_cells},
+                {cell: desired_cell_tokens.get(cell, 0.0) for cell in task_cells},
+            )
+            for cell, tokens in cell_extras.items():
+                cell_targets[cell] += tokens
+
+    for language in config.languages:
+        planned_tokens = sum(cell_targets[f"{language}|{task}"] for task in config.tasks)
+        target_tokens = desired_language_tokens.get(language, 0.0)
+        language_targets[language] = {
+            "target_tokens": target_tokens,
+            "planned_tokens": planned_tokens,
+            "shortfall_tokens": max(target_tokens - planned_tokens, 0.0),
+            "deviation_tokens": planned_tokens - target_tokens,
+        }
+    coverage_shortfall_tokens = max(config.planning.packed_token_budget - sum(cell_targets.values()), 0.0)
+
+    cells: dict[str, dict[str, float]] = {}
+    pool_allocations: dict[str, dict[str, Any]] = {}
+    estimated_tokens = 0.0
+    estimated_label_tokens = 0.0
+    for language in config.languages:
+        for task in config.tasks:
+            cell = f"{language}|{task}"
+            target_tokens = cell_targets[cell]
+            cell_pool_keys = [f"{pool.name}|{language}|{task}" for pool in config.pools]
+            allocations = {
+                key: min(desired_pool_tokens.get(key, 0.0), allocation_capacities[key]) for key in cell_pool_keys
+            }
+            remaining = target_tokens - sum(allocations.values())
+            original_keys = [key for key in cell_pool_keys if desired_pool_tokens.get(key, 0.0) > 0]
+            original_residual = {key: max(allocation_capacities[key] - allocations[key], 0.0) for key in original_keys}
+            original_extras = _allocate_by_quality_tier(
+                remaining,
+                original_residual,
+                pool_map,
+                label_ratios,
+            )
+            for key, tokens in original_extras.items():
+                allocations[key] += tokens
+            remaining = target_tokens - sum(allocations.values())
+            fallback_keys = [key for key in cell_pool_keys if key not in original_keys]
+            fallback_residual = {key: allocation_capacities[key] for key in fallback_keys}
+            fallback_extras = _allocate_by_quality_tier(remaining, fallback_residual, pool_map, label_ratios)
+            for key, tokens in fallback_extras.items():
+                allocations[key] += tokens
+
+            cell_records = 0.0
+            cell_tokens = 0.0
+            cell_labels = 0.0
+            for key, tokens in allocations.items():
+                if tokens <= 0:
+                    continue
+                values = aggregates["by_pool_language_task"].get(key, {})
+                records = float(values.get("records", 0))
+                available_tokens = float(values.get("text_tokens", 0))
+                if records <= 0 or available_tokens <= 0:
+                    continue
+                target_records = tokens / (available_tokens / records)
+                target_labels = target_records * (float(values.get("label_tokens", 0)) / records)
+                pool = pool_map[key.split("|", maxsplit=1)[0]]
+                pool_allocations[key] = {
+                    "target_records": target_records,
+                    "target_tokens": tokens,
+                    "estimated_label_tokens": target_labels,
+                    "source_family": pool.source_family,
+                    "quality_tier": pool.quality_tier,
+                    "reference_tokens": desired_pool_tokens.get(key, 0.0),
+                }
+                cell_records += target_records
+                cell_tokens += tokens
+                cell_labels += target_labels
+            cells[cell] = {
+                "target_records": cell_records,
+                "target_tokens": target_tokens,
+                "estimated_packed_tokens": cell_tokens,
+                "estimated_label_tokens": cell_labels,
+                "shortfall_tokens": max(target_tokens - cell_tokens, 0.0),
+                "reference_target_tokens": desired_cell_tokens.get(cell, 0.0),
+            }
+            estimated_tokens += cell_tokens
+            estimated_label_tokens += cell_labels
+
+    label_reconciliation = _reconcile_nested_label_floor(
+        pool_allocations,
+        allocation_capacities,
+        desired_pool_tokens,
+        label_ratios,
+        config.planning.minimum_label_tokens + config.planning.label_token_planning_margin,
+    )
+    cells = {
+        f"{language}|{task}": {
+            "target_records": 0.0,
+            "target_tokens": 0.0,
+            "estimated_packed_tokens": 0.0,
+            "estimated_label_tokens": 0.0,
+            "shortfall_tokens": 0.0,
+            "reference_target_tokens": desired_cell_tokens.get(f"{language}|{task}", 0.0),
+        }
+        for language in config.languages
+        for task in config.tasks
+    }
+    for key, values in pool_allocations.items():
+        _, language, task = key.split("|", maxsplit=2)
+        cell = cells[f"{language}|{task}"]
+        cell["target_records"] += values["target_records"]
+        cell["target_tokens"] += values["target_tokens"]
+        cell["estimated_packed_tokens"] += values["target_tokens"]
+        cell["estimated_label_tokens"] += values["estimated_label_tokens"]
+    for cell in cells.values():
+        cell["shortfall_tokens"] = max(cell["reference_target_tokens"] - cell["target_tokens"], 0.0)
+    estimated_tokens = sum(values["target_tokens"] for values in pool_allocations.values())
+    estimated_label_tokens = sum(values["estimated_label_tokens"] for values in pool_allocations.values())
+    for language in config.languages:
+        planned_tokens = sum(cells[f"{language}|{task}"]["target_tokens"] for task in config.tasks)
+        target_tokens = desired_language_tokens.get(language, 0.0)
+        language_targets[language] = {
+            "target_tokens": target_tokens,
+            "planned_tokens": planned_tokens,
+            "shortfall_tokens": max(target_tokens - planned_tokens, 0.0),
+            "deviation_tokens": planned_tokens - target_tokens,
+        }
+    coverage_shortfall_tokens = max(config.planning.packed_token_budget - estimated_tokens, 0.0)
+
+    return {
+        "reference_train_summary": str(config.reference_train_summary),
+        "reference_scale": scale,
+        "lower_quality_excess_allowed": False,
+        "reference_task_token_shares": {
+            task: desired_task_tokens[task] / config.planning.packed_token_budget for task in config.tasks
+        },
+        "estimated_packed_tokens": estimated_tokens,
+        "estimated_label_tokens": estimated_label_tokens,
+        "minimum_label_tokens": config.planning.minimum_label_tokens,
+        "label_token_planning_margin": config.planning.label_token_planning_margin,
+        "planning_label_target": config.planning.minimum_label_tokens + config.planning.label_token_planning_margin,
+        "label_token_shortfall": max(config.planning.minimum_label_tokens - estimated_label_tokens, 0.0),
+        "label_reconciliation": label_reconciliation,
+        "coverage_shortfall_tokens": coverage_shortfall_tokens,
+        "language_targets": language_targets,
+        "cells": cells,
+        "pool_allocations": pool_allocations,
+    }
+
+
+def _allocate_by_quality_tier(
+    total: float,
+    capacities: Mapping[str, float],
+    pool_map: Mapping[str, PoolConfig],
+    label_ratios: Mapping[str, float],
+) -> dict[str, float]:
+    allocations = {key: 0.0 for key in capacities}
+    remaining = total
+    for quality_tier, _ in sorted(QUALITY_WEIGHTS.items(), key=lambda item: (-item[1], item[0])):
+        tier_capacities = {
+            key: capacity
+            for key, capacity in capacities.items()
+            if pool_map[key.split("|", maxsplit=1)[0]].quality_tier == quality_tier and capacity > 0
+        }
+        for key in sorted(tier_capacities, key=lambda value: (-label_ratios.get(value, 0.0), value)):
+            tokens = min(remaining, tier_capacities[key])
+            allocations[key] += tokens
+            remaining -= tokens
+            if remaining <= 1e-9:
+                break
+        if remaining <= 1e-9:
+            break
+    return allocations
+
+
+def _reconcile_nested_label_floor(
+    pool_allocations: dict[str, dict[str, Any]],
+    capacities: Mapping[str, float],
+    reference_targets: Mapping[str, float],
+    label_ratios: Mapping[str, float],
+    minimum_label_tokens: int,
+) -> dict[str, float]:
+    average_text_tokens = {
+        key: (
+            float(values["target_tokens"]) / float(values["target_records"])
+            if float(values["target_records"]) > 0
+            else 0.0
+        )
+        for key, values in pool_allocations.items()
+    }
+    before_label_tokens = sum(
+        float(values["target_tokens"]) * label_ratios.get(key, 0.0) for key, values in pool_allocations.items()
+    )
+    remaining_label_tokens = max(minimum_label_tokens - before_label_tokens, 0.0)
+    moved_tokens = 0.0
+    recipients = sorted(pool_allocations, key=lambda key: (-label_ratios.get(key, 0.0), key))
+    donors = sorted(pool_allocations, key=lambda key: (label_ratios.get(key, 0.0), key))
+    for recipient in recipients:
+        recipient_capacity = capacities.get(recipient, 0.0) - float(pool_allocations[recipient]["target_tokens"])
+        if recipient_capacity <= 1e-9:
+            continue
+        for donor in donors:
+            ratio_gain = label_ratios.get(recipient, 0.0) - label_ratios.get(donor, 0.0)
+            if ratio_gain <= 1e-12:
+                break
+            donor_excess = float(pool_allocations[donor]["target_tokens"]) - min(
+                reference_targets.get(donor, 0.0), capacities.get(donor, 0.0)
+            )
+            if donor_excess <= 1e-9:
+                continue
+            transfer = min(recipient_capacity, donor_excess, remaining_label_tokens / ratio_gain)
+            pool_allocations[donor]["target_tokens"] -= transfer
+            pool_allocations[recipient]["target_tokens"] += transfer
+            moved_tokens += transfer
+            recipient_capacity -= transfer
+            remaining_label_tokens -= transfer * ratio_gain
+            if remaining_label_tokens <= 1e-6 or recipient_capacity <= 1e-9:
+                break
+        if remaining_label_tokens <= 1e-6:
+            break
+
+    for key, values in pool_allocations.items():
+        target_tokens = float(values["target_tokens"])
+        average_tokens = average_text_tokens[key]
+        if average_tokens <= 0:
+            continue
+        values["target_records"] = target_tokens / average_tokens
+        values["estimated_label_tokens"] = target_tokens * label_ratios.get(key, 0.0)
+    after_label_tokens = sum(float(values["estimated_label_tokens"]) for values in pool_allocations.values())
+    return {
+        "before_label_tokens": before_label_tokens,
+        "moved_tokens": moved_tokens,
+        "after_label_tokens": after_label_tokens,
+        "remaining_shortfall": max(minimum_label_tokens - after_label_tokens, 0.0),
+    }
 
 
 def _build_token_stratified_plan(config: MixtureConfig, aggregates: Mapping[str, Any]) -> dict[str, Any]:
@@ -1067,22 +1483,40 @@ def _write_plans(plans: Mapping[str, Any], output_dir: Path) -> None:
                     f"| {language} | {values['target_tokens']:,.0f} | "
                     f"{values['planned_tokens']:,.0f} | {values['shortfall_tokens']:,.0f} |"
                 )
-            lines.extend(
-                (
-                    "",
-                    "### Language-task targets",
-                    "",
-                    "| Language | Task | Desired tokens | Planned tokens | Planned share | Below 60% target |",
-                    "|---|---|---:|---:|---:|---|",
+            if name == "p2_nested_extension":
+                lines.extend(
+                    (
+                        "",
+                        "### Language-task targets",
+                        "",
+                        "| Language | Task | Reference tokens | Planned tokens | Deviation |",
+                        "|---|---|---:|---:|---:|",
+                    )
                 )
-            )
-            for cell, values in sorted(plan["cells"].items()):
-                language, task = cell.split("|", maxsplit=1)
-                lines.append(
-                    f"| {language} | {task} | {values['desired_target_tokens']:,.0f} | "
-                    f"{values['target_tokens']:,.0f} | {values['target_share']:.2%} | "
-                    f"{'yes' if values['below_minimum_cell_share'] else 'no'} |"
+                for cell, values in sorted(plan["cells"].items()):
+                    language, task = cell.split("|", maxsplit=1)
+                    deviation = values["target_tokens"] - values["reference_target_tokens"]
+                    lines.append(
+                        f"| {language} | {task} | {values['reference_target_tokens']:,.0f} | "
+                        f"{values['target_tokens']:,.0f} | {deviation:+,.0f} |"
+                    )
+            else:
+                lines.extend(
+                    (
+                        "",
+                        "### Language-task targets",
+                        "",
+                        "| Language | Task | Desired tokens | Planned tokens | Planned share | Below 60% target |",
+                        "|---|---|---:|---:|---:|---|",
+                    )
                 )
+                for cell, values in sorted(plan["cells"].items()):
+                    language, task = cell.split("|", maxsplit=1)
+                    lines.append(
+                        f"| {language} | {task} | {values['desired_target_tokens']:,.0f} | "
+                        f"{values['target_tokens']:,.0f} | {values['target_share']:.2%} | "
+                        f"{'yes' if values['below_minimum_cell_share'] else 'no'} |"
+                    )
             lines.extend(
                 (
                     "",

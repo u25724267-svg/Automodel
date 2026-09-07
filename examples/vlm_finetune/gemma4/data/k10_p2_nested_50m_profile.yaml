@@ -1,0 +1,122 @@
+version: 1
+model_id: google/gemma-4-E2B-it
+max_seq_length: 4096
+review_samples_per_cell: 20
+
+languages: [hau, ibo, kin, swh, yor, zul, amh, xho, sna, wol]
+tasks: [instruction, qa, translation, classification, ner]
+
+locked_train_manifest: /data/gemma4-k10/mixture-p2-v1/train_meta.json
+locked_train_max_repetitions: 4
+reference_train_summary: /data/gemma4-k10/mixture-p2-v1/summary.json
+fixed_validation_manifest: /data/gemma4-k10/mixture-p2-v1/validation_meta.json
+
+pools:
+  - name: afriinstruct
+    manifest: /data/gemma4-k10/pools/afriinstruct/train_meta.json
+    source_family: afriinstruct
+    revision: 0a6325e6806ffcd7b3baefcc3c6b2de435ac6e1e
+    license: mixed-review-required
+    quality_tier: mixed
+  - name: aya
+    manifest: /data/gemma4-k10/pools/aya/train_meta.json
+    source_family: aya
+    revision: f9ea04583f02a8f86404ff6c58bf75fe637df8a2
+    license: Apache-2.0
+    quality_tier: human
+  - name: kenswquad
+    manifest: /data/gemma4-k6/pools/kenswquad/train_meta.json
+    source_family: kenswquad
+    revision: a7f211970d5929c438c7cf3e971d8d34a7292d6e
+    license: CC-BY-4.0
+    quality_tier: human
+  - name: afrihate
+    manifest: /data/gemma4-k10/pools/afrihate/train_meta.json
+    source_family: afrihate
+    revision: bb341d2234e404c1efa355ad2d7973f74ca4c140
+    license: Apache-2.0
+    quality_tier: human
+  - name: kinnews
+    manifest: /data/gemma4-k6/pools/kinnews/train_meta.json
+    source_family: kinnews
+    revision: 97dce354a363f853fa94c439dd42135fc31618f0
+    license: MIT
+    quality_tier: curated
+  - name: swahili_news
+    manifest: /data/gemma4-k6/pools/swahili-news/train_meta.json
+    source_family: swahili_news
+    revision: 24fcf066e6b96f9e0d743e8b79184e0c599f73c3
+    license: Apache-2.0
+    quality_tier: human
+  - name: afridocmt
+    manifest: /data/gemma4-k10/pools/afridocmt/train_meta.json
+    source_family: afridocmt
+    revision: 8ae06a3f73aa9194a0d29b32e6c1037b3f9420fb
+    license: CC-BY-NC-SA-3.0-and-CC-BY-NC-4.0
+    quality_tier: human
+  - name: pontoon
+    manifest: /data/gemma4-k10/pools/pontoon/train_meta.json
+    source_family: pontoon
+    revision: 7318c7cac7cdd5e2e7efc7e86d84256aaf54c8dc
+    license: MPL-2.0
+    quality_tier: curated
+  - name: digital_umuganda
+    manifest: /data/gemma4-k6/pools/digital-umuganda/train_meta.json
+    source_family: digital_umuganda
+    revision: a69005be8d20e2982fedbe0474c5a653adf290f8
+    license: CC-BY-4.0
+    quality_tier: curated
+  - name: hausa_voa_ner
+    manifest: /data/gemma4-k6/pools/hausa-voa-ner/train_meta.json
+    source_family: hausa_voa_ner
+    revision: a6cbe619a7a18309bbd7a3813033b180a043c1a8
+    license: CC-BY-4.0
+    quality_tier: human
+  - name: yoruba_gv_ner
+    manifest: /data/gemma4-k6/pools/yoruba-gv-ner/train_meta.json
+    source_family: yoruba_gv_ner
+    revision: 5f5c76d9ea6a6a7205e53c842c61af719aa8b8c5
+    license: CC-BY-3.0
+    quality_tier: human
+  - name: nchlt_zulu_ner
+    manifest: /data/gemma4-k6/pools/nchlt-zulu-ner/train_meta.json
+    source_family: nchlt_zulu_ner
+    revision: 4f9fee744c6d5ca9fcc921c621386a81ccfa2837
+    license: CC-BY-2.5-ZA
+    quality_tier: human
+  - name: afrisenti
+    manifest: /data/gemma4-k10/pools/afrisenti/train_meta.json
+    source_family: afrisenti
+    revision: eb42667d2e83d0081864767b47681fbaf00144fb
+    license: CC-BY-NC-SA-2.0
+    quality_tier: human
+  - name: masakhanews
+    manifest: /data/gemma4-k10/pools/masakhanews/train_meta.json
+    source_family: masakhanews
+    revision: fa3b5fff8a91d187bf0c5900a39c4271d08cf7fe
+    license: AFL-3.0
+    quality_tier: human
+  - name: masakhaner
+    manifest: /data/gemma4-k10/pools/masakhaner/train_meta.json
+    source_family: masakhaner
+    revision: ba5843cd08aa491d5f96a5e809e71eb9ec461391
+    license: AFL-3.0
+    quality_tier: human
+
+planning:
+  packed_token_budget: 18650688
+  temperature: 2.0
+  max_epochs: 1.0
+  default_source_family_cap: 0.5
+  fallback_source_families: [afriinstruct]
+  fallback_base_share: 0.25
+  task_example_caps:
+    instruction: 100000
+    qa: 100000
+    translation: 100000
+    classification: 100000
+    ner: 100000
+  minimum_label_tokens: 5658730
+  label_token_planning_margin: 100000
+  sampling_seed: 42
+  minimum_cell_token_share: 0.6

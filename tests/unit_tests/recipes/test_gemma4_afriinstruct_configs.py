@@ -78,6 +78,7 @@ def test_afriinstruct_recipes_preserve_gemma4_e2b_text_only_contract() -> None:
         "gemma4_e2b_k10_p2_r32_2ep.yaml",
         "gemma4_e2b_k10_p2_r32_2ep_resume_step1199.yaml",
         "gemma4_e2b_k10_p2_r16_2ep_nvidia_lr.yaml",
+        "gemma4_e2b_k10_p2_nested_50m_r16_2ep_nvidia_lr.yaml",
         "gemma4_e2b_k14_p3_r16_2ep_nvidia_lr.yaml",
         "gemma4_e2b_k10_p4_5m_r16_1ep_nvidia_lr.yaml",
         "gemma4_e2b_k14_p4_5m_r16_1ep_nvidia_lr.yaml",
@@ -304,6 +305,41 @@ def test_k10_r16_nvidia_policy_uses_k10_data_and_memory_safe_validation() -> Non
     assert recipe["wandb"]["project"] == "${WANDB_PROJECT}"
     assert recipe["wandb"]["name"] == "gemma4-e2b-k10-p2-r16-2ep-nvidia-lr-v1"
     assert recipe["wandb"]["group"] == "gemma4-e2b-k10-p2-r16-2ep-nvidia-lr"
+
+
+def test_k10_c2_changes_only_training_data_and_run_identity_from_c0() -> None:
+    c0 = _load_recipe("gemma4_e2b_k10_p2_r16_2ep_nvidia_lr.yaml")
+    c2 = _load_recipe("gemma4_e2b_k10_p2_nested_50m_r16_2ep_nvidia_lr.yaml")
+
+    for section in c0.keys() - {"dataset", "checkpoint", "wandb"}:
+        assert c2[section] == c0[section]
+
+    assert c2["dataset"] == {
+        **c0["dataset"],
+        "path_or_dataset": "/data/gemma4-k10/mixture-p2-nested-50m-v1/train_meta.json",
+    }
+    assert c2["checkpoint"] == {
+        **c0["checkpoint"],
+        "checkpoint_dir": "/checkpoints/gemma4-e2b-k10/p2-nested-50m-r16-2ep-nvidia-lr-v1",
+    }
+    assert c2["validation_dataset"] == c0["validation_dataset"]
+    assert c2["wandb"] == {
+        **c0["wandb"],
+        "name": "gemma4-e2b-k10-p2-nested-50m-r16-2ep-nvidia-lr-v1",
+        "group": "gemma4-e2b-k10-p2-nested-50m-r16-2ep-nvidia-lr",
+        "tags": [
+            "gemma4-e2b",
+            "k10",
+            "p2-nested-50m",
+            "c2",
+            "text-only",
+            "lora-r16",
+            "two-epochs",
+            "nvidia-lr",
+            "memory-qualified",
+        ],
+        "notes": "C2 larger-data arm using the audited nested 50M mixture and unchanged C0 training policy.",
+    }
 
 
 def test_k14_r16_nvidia_policy_uses_k14_p3_data_and_memory_safe_validation() -> None:

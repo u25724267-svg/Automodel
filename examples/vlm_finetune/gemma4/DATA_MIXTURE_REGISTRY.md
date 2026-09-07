@@ -63,6 +63,7 @@ supersedes the older `running` status in the phase handoff documents.
 | Inkuba + AfriInstruct v2 | many | component labels | unavailable | planned 195,000,000 | external summary required |
 | K6 P2 v2 | 6 | 5 | 153,273 | 31,348,990 | exact in registry |
 | K10 P2 v1 | 10 | 5 | 143,579 | 31,349,312 | exact in registry |
+| K10 P2 nested 50M v1 | 10 | 5 | 254,954 | 50,000,000 | exact, independently audited |
 | K14 P3 final v2 | 14 | 5 | 268,251 | 31,353,562 | exact in registry |
 | K10 P4 5M v2 | 10 | 5 | 446,727 | 50,000,000 | exact in registry |
 | K14 P4 5M v1 | 14 | 5 | 604,116 | 70,000,000 | exact in registry |

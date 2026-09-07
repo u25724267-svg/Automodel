@@ -13,14 +13,22 @@
 # limitations under the License.
 
 import json
+import sqlite3
 from collections import Counter
 from pathlib import Path
 
 import pytest
 
+from tools.audit_nested_sft_mixture import audit_nested_mixture
 from tools.benchmark_contamination import BenchmarkBlocklist
-from tools.build_k6_sft_mixture import _find_exact_token_subset, _token_balanced_targets, build_mixture
-from tools.profile_sft_mixture import TokenCounts
+from tools.build_k6_sft_mixture import (
+    _OutputWriter,
+    _find_exact_token_subset,
+    _token_balanced_targets,
+    _trim_lower_quality_allocations,
+    build_mixture,
+)
+from tools.profile_sft_mixture import TokenCounts, _write_plans, build_mixture_plans, load_config, profile_mixture
 
 
 def _write_manifest(root: Path, pool_name: str, rows: list[dict[str, object]]) -> Path:
@@ -338,6 +346,113 @@ def test_build_mixture_preserves_fixed_validation_and_excludes_it_from_train(tmp
     assert (output / "data.jsonl").read_bytes() == (validation_manifest.parent / "data.jsonl").read_bytes()
 
 
+def test_build_mixture_preserves_locked_train_and_adds_exact_delta(tmp_path: Path) -> None:
+    locked = _row(0, "base")
+    locked_counts = _counter(locked["messages"])
+    locked["_prompt_tokens"] = locked_counts.prompt
+    locked["_label_tokens"] = locked_counts.label
+    locked["_text_tokens"] = locked_counts.text
+    locked_manifest = _write_manifest(tmp_path / "locked", "base", [locked, locked])
+    candidate_manifest = _write_manifest(
+        tmp_path,
+        "source",
+        [locked, _row(1, "source"), _row(2, "source"), _row(3, "source")],
+    )
+    config = _config(tmp_path, [("source", candidate_manifest)], max_epochs=1.0)
+    config_data = json.loads(config.read_text(encoding="utf-8"))
+    config_data["locked_train_manifest"] = str(locked_manifest)
+    reference_summary = tmp_path / "reference-summary.json"
+    reference_summary.write_text(
+        json.dumps({"train_allocations": {"source|hau|classification": {"tokens": 4}}}),
+        encoding="utf-8",
+    )
+    config_data["reference_train_summary"] = str(reference_summary)
+    config_data["planning"]["packed_token_budget"] = 8
+    config.write_text(json.dumps(config_data), encoding="utf-8")
+    loaded_config = load_config(config)
+    benchmark_blocklist = _blocklist(tmp_path / "benchmarks.sqlite3")
+    profile_a_dir = tmp_path / "profile-a"
+    profile_b_dir = tmp_path / "profile-b"
+    profile_a = profile_mixture(
+        loaded_config,
+        token_counter=_counter,
+        output_dir=profile_a_dir,
+        benchmark_blocklist=benchmark_blocklist,
+    )
+    profile_mixture(
+        loaded_config,
+        token_counter=_counter,
+        output_dir=profile_b_dir,
+        benchmark_blocklist=benchmark_blocklist,
+    )
+    plans_dir = tmp_path / "plans"
+    _write_plans(build_mixture_plans(loaded_config, profile_a), plans_dir)
+    plan = plans_dir / "plans.json"
+
+    output = tmp_path / "mixture"
+    summary = build_mixture(
+        config_path=config,
+        plan_path=plan,
+        policy="p2_nested_extension",
+        benchmark_blocklist=benchmark_blocklist,
+        output_dir=output,
+        validation_records_per_pool=0,
+        token_counter=_counter,
+    )
+
+    base_shard = locked_manifest.parent / "data.jsonl"
+    assert (output / "data.jsonl").read_bytes() == base_shard.read_bytes()
+    assert summary["rejections"]["locked_train"] == 1
+    assert summary["base_train_records"] == 2
+    assert summary["base_train_unique_records"] == 1
+    assert summary["base_train_tokens"] == 8
+    assert summary["extension_train_records"] == 2
+    assert summary["extension_train_tokens"] == 8
+    assert summary["train_total_records"] == 4
+    assert summary["train_total_tokens"] == 16
+    assert summary["train_token_deviation"] == 0
+    assert summary["extension_reconciliation"] == {
+        "target_tokens": 8,
+        "before_tokens": 8,
+        "added_records": 0,
+        "removed_records": 0,
+        "after_tokens": 8,
+    }
+    train_manifest = json.loads((output / "train_meta.json").read_text(encoding="utf-8"))
+    assert train_manifest["data"] == json.loads(locked_manifest.read_text(encoding="utf-8"))["data"]
+    assert "extension-source-00000" in train_manifest
+
+    audit = audit_nested_mixture(
+        output_dir=output,
+        locked_train_manifest=locked_manifest,
+        fixed_validation_manifest=output / "validation_meta.json",
+        config_path=config,
+        plan_path=plan,
+        profile_path=profile_a_dir / "profile.json",
+        profile_path_b=profile_b_dir / "profile.json",
+        benchmark_blocklist=benchmark_blocklist,
+        token_counter=_counter,
+    )
+
+    assert audit["status"] == "accepted"
+    assert audit["base_extension_overlap"] == 0
+    assert audit["extension_unique_records"] == 2
+    assert audit["combined_tokens"] == 16
+
+    with pytest.raises(ValueError, match="profile paths must be distinct"):
+        audit_nested_mixture(
+            output_dir=output,
+            locked_train_manifest=locked_manifest,
+            fixed_validation_manifest=output / "validation_meta.json",
+            config_path=config,
+            plan_path=plan,
+            profile_path=profile_a_dir / "profile.json",
+            profile_path_b=profile_a_dir / "profile.json",
+            benchmark_blocklist=benchmark_blocklist,
+            token_counter=_counter,
+        )
+
+
 def test_build_mixture_rejects_unrealizable_fixed_language_budget(tmp_path: Path) -> None:
     manifest = _write_manifest(tmp_path, "source", [_row(0, "source"), _row(1, "source"), _row(2, "source")])
     config = _config(tmp_path, [("source", manifest)])
@@ -425,3 +540,80 @@ def test_find_exact_token_subset_reconstructs_or_rejects_target() -> None:
 
     assert _find_exact_token_subset(candidates, 31) == ["first", "second", "third"]
     assert _find_exact_token_subset(candidates, 5) is None
+
+
+def test_find_exact_token_subset_handles_realistic_token_target() -> None:
+    candidates = [(index, tokens) for index, tokens in enumerate(range(101, 1_101))]
+
+    selected = _find_exact_token_subset(candidates, 100_000)
+
+    assert selected is not None
+    assert sum(candidates[index][1] for index in selected) == 100_000
+
+
+def test_output_writer_rejects_existing_shard_path(tmp_path: Path) -> None:
+    existing = tmp_path / "processed" / "train" / "extension-source-00000.jsonl"
+    existing.parent.mkdir(parents=True)
+    existing.write_text("locked base\n", encoding="utf-8")
+    writer = _OutputWriter(tmp_path, shard_size=10)
+
+    with pytest.raises(FileExistsError):
+        writer.write("train", "extension-source", "extension")
+
+    assert existing.read_text(encoding="utf-8") == "locked base\n"
+
+
+def test_nested_trimming_enforces_lower_quality_token_cap(tmp_path: Path) -> None:
+    manifest = _write_manifest(tmp_path, "mixed", [_row(0, "mixed")])
+    config_path = _config(tmp_path, [("mixed", manifest)])
+    config_data = json.loads(config_path.read_text(encoding="utf-8"))
+    config_data["pools"][0]["quality_tier"] = "mixed"
+    config_path.write_text(json.dumps(config_data), encoding="utf-8")
+    output = tmp_path / "mixture"
+    output.mkdir()
+    connection = sqlite3.connect(output / ".mixture.sqlite3")
+    connection.execute(
+        "CREATE TABLE candidates (digest BLOB PRIMARY KEY, pool TEXT, lang TEXT, task TEXT, tokens INTEGER, "
+        "selected INTEGER)"
+    )
+    connection.execute("CREATE TABLE selections (sequence INTEGER PRIMARY KEY, digest BLOB)")
+    connection.executemany(
+        "INSERT INTO candidates VALUES (?, 'mixed', 'hau', 'classification', ?, 1)",
+        ((b"a", 7), (b"b", 5)),
+    )
+    connection.executemany("INSERT INTO selections VALUES (?, ?)", ((1, b"a"), (2, b"b")))
+    connection.commit()
+    connection.close()
+
+    trimming = _trim_lower_quality_allocations(
+        output,
+        {"pool_allocations": {"mixed|hau|classification": {"target_tokens": 10.0}}},
+        load_config(config_path),
+    )
+
+    assert trimming["mixed|hau|classification"] == {
+        "target_tokens": 10,
+        "before_tokens": 12,
+        "removed_records": 1,
+        "after_tokens": 7,
+    }
+
+
+def test_build_mixture_requires_nested_policy_for_reference_summary(tmp_path: Path) -> None:
+    manifest = _write_manifest(tmp_path, "source", [_row(0, "source")])
+    config = _config(tmp_path, [("source", manifest)])
+    config_data = json.loads(config.read_text(encoding="utf-8"))
+    config_data["reference_train_summary"] = str(tmp_path / "reference.json")
+    config.write_text(json.dumps(config_data), encoding="utf-8")
+    plan = _plan(tmp_path, {"source|hau|classification": 1.0}, target_records=1.0)
+
+    with pytest.raises(ValueError, match="requires policy p2_nested_extension"):
+        build_mixture(
+            config_path=config,
+            plan_path=plan,
+            policy="p2_quality_constrained",
+            benchmark_blocklist=_blocklist(tmp_path / "benchmarks.sqlite3"),
+            output_dir=tmp_path / "mixture",
+            validation_records_per_pool=0,
+            token_counter=_counter,
+        )
