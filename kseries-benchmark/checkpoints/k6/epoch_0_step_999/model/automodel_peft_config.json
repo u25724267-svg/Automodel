@@ -1,0 +1,20 @@
+{
+  "dropout": 0.05,
+  "dropout_position": "post",
+  "exclude_modules": [
+    "*vision_tower*",
+    "*vision*",
+    "*visual*",
+    "*image_encoder*",
+    "*audio*",
+    "*lm_head*"
+  ],
+  "lora_A_init": "xavier",
+  "lora_dtype": null,
+  "match_all_linear": false,
+  "moe_rank_scaling": false,
+  "target_modules": [],
+  "use_dora": false,
+  "use_memory_efficient_lora": true,
+  "use_triton": true
+}
