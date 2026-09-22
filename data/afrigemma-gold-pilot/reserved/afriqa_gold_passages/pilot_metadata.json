@@ -1,0 +1,24 @@
+{
+  "dataset_id": "afriqa_gold_passages",
+  "disposition": "reserved",
+  "training_allowed_by_report": false,
+  "sample_count": 5,
+  "selection": "first five rows from the lexicographically first parquet shard",
+  "split": "test",
+  "source_shard": "/mnt/afrigemma-train/afriqa_gold_passages/test/afriqa_gold_passages-test-00000.parquet",
+  "source_shard_rows": 2723,
+  "source_manifest": "/mnt/afrigemma-train/afriqa_gold_passages/manifest.json",
+  "source_manifest_sha256": "50383e5598c6960a540d0b48871405468a5d588e3284b1c7a5f3571d3bc4251d",
+  "sample_file": "/home/casper/AfirkaLLM/Automodel/data/afrigemma-gold-pilot/reserved/afriqa_gold_passages/samples.jsonl",
+  "sample_sha256": "4003aaa40c9bc7987ea64ee19c86de4370267278912616ca267bfe61859cb401",
+  "columns": [
+    "messages",
+    "language",
+    "task",
+    "prompt_lang",
+    "source_dataset",
+    "source_config",
+    "source_split"
+  ],
+  "status": "extracted"
+}

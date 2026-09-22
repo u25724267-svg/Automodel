@@ -1,0 +1,63 @@
+{
+  "dataset_priority": [
+    "aya_dataset",
+    "naijasenti",
+    "afrisenti",
+    "menyo20k_mt",
+    "mafand_mt",
+    "masakhaner2",
+    "masakhaner1",
+    "masakhanews",
+    "masakhapos"
+  ],
+  "max_records_per_dataset": 5,
+  "output_dir": "/home/casper/AfirkaLLM/Automodel/data/afrigemma-gold-pilot/normalized",
+  "reserved_datasets_excluded": [
+    "afri_mgsm",
+    "afri_mmlu",
+    "afrixnli",
+    "afriqa",
+    "afriqa_gold_passages",
+    "flores_plus",
+    "uhura_arc_easy",
+    "uhura_eval"
+  ],
+  "source_root": "/mnt/afrigemma-train",
+  "stats": {
+    "by_dataset": {
+      "afrisenti": 5,
+      "aya_dataset": 5,
+      "mafand_mt": 5,
+      "masakhaner1": 5,
+      "masakhaner2": 5,
+      "masakhanews": 5,
+      "masakhapos": 5,
+      "menyo20k_mt": 5,
+      "naijasenti": 5
+    },
+    "by_language": {
+      "amh": 15,
+      "bam": 10,
+      "hau": 5,
+      "som": 2,
+      "yor": 13
+    },
+    "by_task": {
+      "classification": 10,
+      "instruction": 5,
+      "ner": 10,
+      "pos": 5,
+      "topic_classification": 5,
+      "translation": 10
+    },
+    "duplicate_records": 0,
+    "input_records": 45,
+    "rejection_reasons": {},
+    "written_records": 45
+  },
+  "unregistered_shards_ignored": {
+    "aya_dataset": [
+      "aya_dataset-train-00001.parquet"
+    ]
+  }
+}

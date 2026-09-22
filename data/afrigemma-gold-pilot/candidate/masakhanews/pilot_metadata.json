@@ -1,0 +1,24 @@
+{
+  "dataset_id": "masakhanews",
+  "disposition": "candidate",
+  "training_allowed_by_report": true,
+  "sample_count": 5,
+  "selection": "first five rows from the lexicographically first parquet shard",
+  "split": "train",
+  "source_shard": "/mnt/afrigemma-train/masakhanews/train/masakhanews-train-00000.parquet",
+  "source_shard_rows": 21734,
+  "source_manifest": "/mnt/afrigemma-train/masakhanews/manifest.json",
+  "source_manifest_sha256": "39a551b4eedeebd59699c109a9cbaf7187dafab146770922b15a27209925428e",
+  "sample_file": "/home/casper/AfirkaLLM/Automodel/data/afrigemma-gold-pilot/candidate/masakhanews/samples.jsonl",
+  "sample_sha256": "de81fc499cb88b5def06089d53db93b6007c7c4c2a92c4e1ffc2da7bfffd38a4",
+  "columns": [
+    "messages",
+    "language",
+    "task",
+    "prompt_lang",
+    "source_dataset",
+    "source_config",
+    "source_split"
+  ],
+  "status": "extracted"
+}

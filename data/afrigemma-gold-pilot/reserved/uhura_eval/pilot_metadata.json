@@ -1,0 +1,25 @@
+{
+  "dataset_id": "uhura_eval",
+  "disposition": "reserved",
+  "training_allowed_by_report": false,
+  "sample_count": 5,
+  "selection": "first five rows from the lexicographically first parquet shard",
+  "split": "test",
+  "source_shard": "/mnt/afrigemma-train/uhura_eval/test/uhura_eval-test-00000.parquet",
+  "source_shard_rows": 4828,
+  "source_manifest": "/mnt/afrigemma-train/uhura_eval/manifest.json",
+  "source_manifest_sha256": "0373df3d7f51ea8128906e369075758d3a0aa7a0b0ea3e98648b936a30d96264",
+  "sample_file": "/home/casper/AfirkaLLM/Automodel/data/afrigemma-gold-pilot/reserved/uhura_eval/samples.jsonl",
+  "sample_sha256": "80ff48b3073c12ecad839536aa381825af53f0e7f056baa906f753dc697f0586",
+  "columns": [
+    "messages",
+    "language",
+    "task",
+    "prompt_lang",
+    "source_dataset",
+    "source_config",
+    "source_split",
+    "provenance"
+  ],
+  "status": "extracted"
+}

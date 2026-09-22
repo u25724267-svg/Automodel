@@ -1,0 +1,24 @@
+{
+  "dataset_id": "mafand_mt",
+  "disposition": "candidate",
+  "training_allowed_by_report": true,
+  "sample_count": 5,
+  "selection": "first five rows from the lexicographically first parquet shard",
+  "split": "train",
+  "source_shard": "/mnt/afrigemma-train/mafand_mt/train/mafand_mt-train-00000.parquet",
+  "source_shard_rows": 88114,
+  "source_manifest": "/mnt/afrigemma-train/mafand_mt/manifest.json",
+  "source_manifest_sha256": "d7652853b6c50843b3875f462f7cf9434734be853e4adf4e27cf03d8abbe34ee",
+  "sample_file": "/home/casper/AfirkaLLM/Automodel/data/afrigemma-gold-pilot/candidate/mafand_mt/samples.jsonl",
+  "sample_sha256": "ea23fddf50b82d653df985f9dfa57467c9cecb395fdce528956f1e3e569ca43f",
+  "columns": [
+    "messages",
+    "language",
+    "task",
+    "prompt_lang",
+    "source_dataset",
+    "source_config",
+    "source_split"
+  ],
+  "status": "extracted"
+}

@@ -1,0 +1,24 @@
+{
+  "dataset_id": "uhura_arc_easy",
+  "disposition": "reserved",
+  "training_allowed_by_report": false,
+  "sample_count": 5,
+  "selection": "first five rows from the lexicographically first parquet shard",
+  "split": "test",
+  "source_shard": "/mnt/afrigemma-train/uhura_arc_easy/test/uhura_arc_easy-test-00000.parquet",
+  "source_shard_rows": 3257,
+  "source_manifest": "/mnt/afrigemma-train/uhura_arc_easy/manifest.json",
+  "source_manifest_sha256": "e3b60a6eb175ad76a70bfdb840b1d444286609cd62f2bb2981b6b29e750c834e",
+  "sample_file": "/home/casper/AfirkaLLM/Automodel/data/afrigemma-gold-pilot/reserved/uhura_arc_easy/samples.jsonl",
+  "sample_sha256": "e8bdd3f95c8cdc855924fcf6104ca872e5993e1998d3bb2190c9d69cf86e2fea",
+  "columns": [
+    "messages",
+    "language",
+    "task",
+    "prompt_lang",
+    "source_dataset",
+    "source_config",
+    "source_split"
+  ],
+  "status": "extracted"
+}

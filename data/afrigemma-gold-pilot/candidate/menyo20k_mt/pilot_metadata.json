@@ -1,0 +1,25 @@
+{
+  "dataset_id": "menyo20k_mt",
+  "disposition": "candidate",
+  "training_allowed_by_report": true,
+  "sample_count": 5,
+  "selection": "first five rows from the lexicographically first parquet shard",
+  "split": "train",
+  "source_shard": "/mnt/afrigemma-train/menyo20k_mt/train/menyo20k_mt-train-00000.parquet",
+  "source_shard_rows": 10070,
+  "source_manifest": "/mnt/afrigemma-train/menyo20k_mt/manifest.json",
+  "source_manifest_sha256": "31775eef1031f2f9ed95815923204311bafcf0c77bdd583d69938951b25b71a1",
+  "sample_file": "/home/casper/AfirkaLLM/Automodel/data/afrigemma-gold-pilot/candidate/menyo20k_mt/samples.jsonl",
+  "sample_sha256": "613a4e1888ce3a56f334e320275054494bf88ee4c5f3f9085aabe2dc6b2467c8",
+  "columns": [
+    "messages",
+    "language",
+    "task",
+    "prompt_lang",
+    "source_dataset",
+    "source_config",
+    "source_split",
+    "src_language"
+  ],
+  "status": "extracted"
+}

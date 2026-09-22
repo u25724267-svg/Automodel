@@ -1,0 +1,23 @@
+{
+  "dataset_id": "aya_dataset",
+  "disposition": "candidate",
+  "training_allowed_by_report": true,
+  "sample_count": 5,
+  "selection": "first five rows from the lexicographically first parquet shard",
+  "split": "train",
+  "source_shard": "/mnt/afrigemma-train/aya_dataset/train/aya_dataset-train-00000.parquet",
+  "source_shard_rows": 56611,
+  "source_manifest": "/mnt/afrigemma-train/aya_dataset/manifest.json",
+  "source_manifest_sha256": "542c6f06bc136d45abe8a872fcae60d9c8268fa6d2af03987c03417271042eeb",
+  "sample_file": "/home/casper/AfirkaLLM/Automodel/data/afrigemma-gold-pilot/candidate/aya_dataset/samples.jsonl",
+  "sample_sha256": "bcbeea9aace00831da0184d0fe8ed6dc06577e094a8e2d5636918f5bf8c54afa",
+  "columns": [
+    "source_split",
+    "dataset_id",
+    "config",
+    "language",
+    "messages",
+    "provenance"
+  ],
+  "status": "extracted"
+}

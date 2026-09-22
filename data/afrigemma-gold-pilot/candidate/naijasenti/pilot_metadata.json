@@ -1,0 +1,24 @@
+{
+  "dataset_id": "naijasenti",
+  "disposition": "candidate",
+  "training_allowed_by_report": true,
+  "sample_count": 5,
+  "selection": "first five rows from the lexicographically first parquet shard",
+  "split": "train",
+  "source_shard": "/mnt/afrigemma-train/naijasenti/train/naijasenti-train-00000.parquet",
+  "source_shard_rows": 38007,
+  "source_manifest": "/mnt/afrigemma-train/naijasenti/manifest.json",
+  "source_manifest_sha256": "65cd00768b9a78a83a0ffd4f8eda88df4e7f367b432e5a6adb9ff657c77d3b2b",
+  "sample_file": "/home/casper/AfirkaLLM/Automodel/data/afrigemma-gold-pilot/candidate/naijasenti/samples.jsonl",
+  "sample_sha256": "cda29a82d65380740dd6bfd973cde6c2ccf06677744944db53e72108cacc2815",
+  "columns": [
+    "messages",
+    "language",
+    "task",
+    "prompt_lang",
+    "source_dataset",
+    "source_config",
+    "source_split"
+  ],
+  "status": "extracted"
+}

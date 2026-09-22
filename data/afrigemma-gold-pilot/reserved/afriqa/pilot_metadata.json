@@ -1,0 +1,24 @@
+{
+  "dataset_id": "afriqa",
+  "disposition": "reserved",
+  "training_allowed_by_report": false,
+  "sample_count": 5,
+  "selection": "first five rows from the lexicographically first parquet shard",
+  "split": "test",
+  "source_shard": "/mnt/afrigemma-train/afriqa/test/afriqa-test-00000.parquet",
+  "source_shard_rows": 3109,
+  "source_manifest": "/mnt/afrigemma-train/afriqa/manifest.json",
+  "source_manifest_sha256": "ee2cf1a44bbefce0501baf26f1dc691c8566e86d240774fbc89810dd828513d1",
+  "sample_file": "/home/casper/AfirkaLLM/Automodel/data/afrigemma-gold-pilot/reserved/afriqa/samples.jsonl",
+  "sample_sha256": "bcb477affff8529747a2c63e6efee6aede5135475d0077c21726cbae380b3b61",
+  "columns": [
+    "messages",
+    "language",
+    "task",
+    "prompt_lang",
+    "source_dataset",
+    "source_config",
+    "source_split"
+  ],
+  "status": "extracted"
+}

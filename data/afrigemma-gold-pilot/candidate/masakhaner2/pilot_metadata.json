@@ -1,0 +1,24 @@
+{
+  "dataset_id": "masakhaner2",
+  "disposition": "candidate",
+  "training_allowed_by_report": true,
+  "sample_count": 5,
+  "selection": "first five rows from the lexicographically first parquet shard",
+  "split": "train",
+  "source_shard": "/mnt/afrigemma-train/masakhaner2/train/masakhaner2-train-00000.parquet",
+  "source_shard_rows": 107052,
+  "source_manifest": "/mnt/afrigemma-train/masakhaner2/manifest.json",
+  "source_manifest_sha256": "247ceb28a6039f5f74a3a9eed03f701a70722a4320beb680d30a572e97c43483",
+  "sample_file": "/home/casper/AfirkaLLM/Automodel/data/afrigemma-gold-pilot/candidate/masakhaner2/samples.jsonl",
+  "sample_sha256": "b7226652f40cc0e5b329111623c81e3d7324cac3363297753bec06ec3251b269",
+  "columns": [
+    "messages",
+    "language",
+    "task",
+    "prompt_lang",
+    "source_dataset",
+    "source_config",
+    "source_split"
+  ],
+  "status": "extracted"
+}

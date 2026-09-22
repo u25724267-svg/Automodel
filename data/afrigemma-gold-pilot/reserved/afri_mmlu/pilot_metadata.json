@@ -1,0 +1,25 @@
+{
+  "dataset_id": "afri_mmlu",
+  "disposition": "reserved",
+  "training_allowed_by_report": false,
+  "sample_count": 5,
+  "selection": "first five rows from the lexicographically first parquet shard",
+  "split": "test",
+  "source_shard": "/mnt/afrigemma-train/afri_mmlu/test/afri_mmlu-test-00000.parquet",
+  "source_shard_rows": 6501,
+  "source_manifest": "/mnt/afrigemma-train/afri_mmlu/manifest.json",
+  "source_manifest_sha256": "22ca7a59a4ad5b4b93645a7ad288b66e503bf346c71f7003d8aef9c6d184f427",
+  "sample_file": "/home/casper/AfirkaLLM/Automodel/data/afrigemma-gold-pilot/reserved/afri_mmlu/samples.jsonl",
+  "sample_sha256": "6e9e9653a4b343ab0a86a097f2004a9dd28f5e09acb927fc54db0d0bc294b10b",
+  "columns": [
+    "source_split",
+    "dataset_id",
+    "config",
+    "language",
+    "prompt_lang",
+    "messages",
+    "metadata",
+    "provenance"
+  ],
+  "status": "extracted"
+}

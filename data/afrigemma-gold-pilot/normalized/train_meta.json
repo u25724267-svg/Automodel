@@ -1,0 +1,65 @@
+{
+  "afrisenti": {
+    "columns": {
+      "messages": "messages"
+    },
+    "file_name": "processed/train/afrisenti.jsonl",
+    "sample_ratio": 1.0
+  },
+  "aya_dataset": {
+    "columns": {
+      "messages": "messages"
+    },
+    "file_name": "processed/train/aya_dataset.jsonl",
+    "sample_ratio": 1.0
+  },
+  "mafand_mt": {
+    "columns": {
+      "messages": "messages"
+    },
+    "file_name": "processed/train/mafand_mt.jsonl",
+    "sample_ratio": 1.0
+  },
+  "masakhaner1": {
+    "columns": {
+      "messages": "messages"
+    },
+    "file_name": "processed/train/masakhaner1.jsonl",
+    "sample_ratio": 1.0
+  },
+  "masakhaner2": {
+    "columns": {
+      "messages": "messages"
+    },
+    "file_name": "processed/train/masakhaner2.jsonl",
+    "sample_ratio": 1.0
+  },
+  "masakhanews": {
+    "columns": {
+      "messages": "messages"
+    },
+    "file_name": "processed/train/masakhanews.jsonl",
+    "sample_ratio": 1.0
+  },
+  "masakhapos": {
+    "columns": {
+      "messages": "messages"
+    },
+    "file_name": "processed/train/masakhapos.jsonl",
+    "sample_ratio": 1.0
+  },
+  "menyo20k_mt": {
+    "columns": {
+      "messages": "messages"
+    },
+    "file_name": "processed/train/menyo20k_mt.jsonl",
+    "sample_ratio": 1.0
+  },
+  "naijasenti": {
+    "columns": {
+      "messages": "messages"
+    },
+    "file_name": "processed/train/naijasenti.jsonl",
+    "sample_ratio": 1.0
+  }
+}
