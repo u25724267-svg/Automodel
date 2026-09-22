@@ -1,0 +1,22 @@
+{
+  "source_pilot": "/home/casper/AfirkaLLM/Automodel/examples/vlm_finetune/gemma4/data/top40_gold_pilot",
+  "format": "NeMo AutoModel meta dataset with native OpenAI-format messages",
+  "candidate_training_manifest": "train_meta.json",
+  "reserved_training_policy": "exclude from training",
+  "results": [
+    {
+      "disposition": "candidate",
+      "datasets_written": 9,
+      "records_written": 27,
+      "system_messages_removed": 27,
+      "meta_file": "train_meta.json"
+    },
+    {
+      "disposition": "reserved",
+      "datasets_written": 6,
+      "records_written": 18,
+      "system_messages_removed": 18,
+      "meta_file": "reserved_meta.json"
+    }
+  ]
+}

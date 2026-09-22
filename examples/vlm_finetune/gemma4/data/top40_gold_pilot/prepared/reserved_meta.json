@@ -1,0 +1,44 @@
+{
+  "afri_mgsm": {
+    "file_name": "reserved/afri_mgsm.jsonl",
+    "columns": {
+      "messages": "messages"
+    },
+    "sample_ratio": 1.0
+  },
+  "afri_mmlu": {
+    "file_name": "reserved/afri_mmlu.jsonl",
+    "columns": {
+      "messages": "messages"
+    },
+    "sample_ratio": 1.0
+  },
+  "afriqa": {
+    "file_name": "reserved/afriqa.jsonl",
+    "columns": {
+      "messages": "messages"
+    },
+    "sample_ratio": 1.0
+  },
+  "afriqa_gold_passages": {
+    "file_name": "reserved/afriqa_gold_passages.jsonl",
+    "columns": {
+      "messages": "messages"
+    },
+    "sample_ratio": 1.0
+  },
+  "uhura_arc_easy": {
+    "file_name": "reserved/uhura_arc_easy.jsonl",
+    "columns": {
+      "messages": "messages"
+    },
+    "sample_ratio": 1.0
+  },
+  "uhura_eval": {
+    "file_name": "reserved/uhura_eval.jsonl",
+    "columns": {
+      "messages": "messages"
+    },
+    "sample_ratio": 1.0
+  }
+}

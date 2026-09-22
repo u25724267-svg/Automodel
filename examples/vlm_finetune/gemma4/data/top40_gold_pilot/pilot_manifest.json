@@ -1,0 +1,191 @@
+{
+  "source_root": "/home/casper/afrigemma-train",
+  "source_access": "read-only mount verified with statvfs ST_RDONLY",
+  "samples_per_dataset": 3,
+  "reserved_training_policy": "exclude from training; FLORES+ training is prohibited",
+  "datasets": [
+    {
+      "dataset_id": "aya_dataset",
+      "disposition": "candidate",
+      "status": "extracted",
+      "source_split": "train",
+      "source_shards": [
+        "aya_dataset-train-00000.parquet"
+      ],
+      "samples_written": 3,
+      "output_file": "candidate/aya_dataset.jsonl"
+    },
+    {
+      "dataset_id": "afrisenti",
+      "disposition": "candidate",
+      "status": "extracted",
+      "source_split": "train",
+      "source_shards": [
+        "afrisenti-train-00000.parquet"
+      ],
+      "samples_written": 3,
+      "output_file": "candidate/afrisenti.jsonl"
+    },
+    {
+      "dataset_id": "mafand_mt",
+      "disposition": "candidate",
+      "status": "extracted",
+      "source_split": "train",
+      "source_shards": [
+        "mafand_mt-train-00000.parquet"
+      ],
+      "samples_written": 3,
+      "output_file": "candidate/mafand_mt.jsonl"
+    },
+    {
+      "dataset_id": "masakhaner1",
+      "disposition": "candidate",
+      "status": "extracted",
+      "source_split": "train",
+      "source_shards": [
+        "masakhaner1-train-00000.parquet"
+      ],
+      "samples_written": 3,
+      "output_file": "candidate/masakhaner1.jsonl"
+    },
+    {
+      "dataset_id": "masakhaner2",
+      "disposition": "candidate",
+      "status": "extracted",
+      "source_split": "train",
+      "source_shards": [
+        "masakhaner2-train-00000.parquet"
+      ],
+      "samples_written": 3,
+      "output_file": "candidate/masakhaner2.jsonl"
+    },
+    {
+      "dataset_id": "masakhanews",
+      "disposition": "candidate",
+      "status": "extracted",
+      "source_split": "train",
+      "source_shards": [
+        "masakhanews-train-00000.parquet"
+      ],
+      "samples_written": 3,
+      "output_file": "candidate/masakhanews.jsonl"
+    },
+    {
+      "dataset_id": "masakhapos",
+      "disposition": "candidate",
+      "status": "extracted",
+      "source_split": "train",
+      "source_shards": [
+        "masakhapos-train-00000.parquet"
+      ],
+      "samples_written": 3,
+      "output_file": "candidate/masakhapos.jsonl"
+    },
+    {
+      "dataset_id": "menyo20k_mt",
+      "disposition": "candidate",
+      "status": "extracted",
+      "source_split": "train",
+      "source_shards": [
+        "menyo20k_mt-train-00000.parquet"
+      ],
+      "samples_written": 3,
+      "output_file": "candidate/menyo20k_mt.jsonl"
+    },
+    {
+      "dataset_id": "naijasenti",
+      "disposition": "candidate",
+      "status": "extracted",
+      "source_split": "train",
+      "source_shards": [
+        "naijasenti-train-00000.parquet"
+      ],
+      "samples_written": 3,
+      "output_file": "candidate/naijasenti.jsonl"
+    },
+    {
+      "dataset_id": "afri_mgsm",
+      "disposition": "reserved",
+      "status": "extracted",
+      "source_split": "train",
+      "source_shards": [
+        "afri_mgsm-train-00000.parquet"
+      ],
+      "samples_written": 3,
+      "output_file": "reserved/afri_mgsm.jsonl"
+    },
+    {
+      "dataset_id": "afri_mmlu",
+      "disposition": "reserved",
+      "status": "extracted",
+      "source_split": "test",
+      "source_shards": [
+        "afri_mmlu-test-00000.parquet"
+      ],
+      "samples_written": 3,
+      "output_file": "reserved/afri_mmlu.jsonl"
+    },
+    {
+      "dataset_id": "afrixnli",
+      "disposition": "reserved",
+      "status": "missing",
+      "source_split": null,
+      "source_shards": [],
+      "samples_written": 0,
+      "output_file": null
+    },
+    {
+      "dataset_id": "afriqa",
+      "disposition": "reserved",
+      "status": "extracted",
+      "source_split": "test",
+      "source_shards": [
+        "afriqa-test-00000.parquet"
+      ],
+      "samples_written": 3,
+      "output_file": "reserved/afriqa.jsonl"
+    },
+    {
+      "dataset_id": "afriqa_gold_passages",
+      "disposition": "reserved",
+      "status": "extracted",
+      "source_split": "test",
+      "source_shards": [
+        "afriqa_gold_passages-test-00000.parquet"
+      ],
+      "samples_written": 3,
+      "output_file": "reserved/afriqa_gold_passages.jsonl"
+    },
+    {
+      "dataset_id": "flores_plus",
+      "disposition": "reserved",
+      "status": "missing",
+      "source_split": null,
+      "source_shards": [],
+      "samples_written": 0,
+      "output_file": null
+    },
+    {
+      "dataset_id": "uhura_arc_easy",
+      "disposition": "reserved",
+      "status": "extracted",
+      "source_split": "test",
+      "source_shards": [
+        "uhura_arc_easy-test-00000.parquet"
+      ],
+      "samples_written": 3,
+      "output_file": "reserved/uhura_arc_easy.jsonl"
+    },
+    {
+      "dataset_id": "uhura_eval",
+      "disposition": "reserved",
+      "status": "extracted",
+      "source_split": "test",
+      "source_shards": [
+        "uhura_eval-test-00000.parquet"
+      ],
+      "samples_written": 3,
+      "output_file": "reserved/uhura_eval.jsonl"
+    }
+  ]
+}
