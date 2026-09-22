@@ -195,3 +195,6 @@ docs/fern/product-docs/
 docs/fern/versions/v0.4/pages/
 
 training_logs/
+
+# Local materialized Top-40 gold training data.
+/examples/vlm_finetune/gemma4/data/top40_gold_v1/
