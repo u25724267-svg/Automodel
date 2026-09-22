@@ -166,6 +166,7 @@ def prepare_inventory(
     *,
     max_train_records_per_dataset: int = 10_000,
     max_validation_records_per_dataset: int = 1_000,
+    resume_after_dataset: str | None = None,
 ) -> dict[str, object]:
     """Materialize the capped Top-40 mixture from all eligible inventory families.
 
@@ -175,11 +176,19 @@ def prepare_inventory(
         output_dir: New local output directory.
         max_train_records_per_dataset: Maximum accepted training records from each family.
         max_validation_records_per_dataset: Maximum accepted validation records from each family.
+        resume_after_dataset: Rebuild all validation, but process training only after this family.
 
     Returns:
         JSON-compatible preparation summary.
     """
     policy = load_inventory_policy(workbook_path.resolve(), source_root.resolve())
+    train_dataset_ids = policy.dataset_ids
+    if resume_after_dataset is not None:
+        if resume_after_dataset not in policy.dataset_ids:
+            raise ValueError(f"Resume dataset is not selected by the inventory: {resume_after_dataset}")
+        train_dataset_ids = policy.dataset_ids[policy.dataset_ids.index(resume_after_dataset) + 1 :]
+        if not train_dataset_ids:
+            raise ValueError(f"No training datasets remain after {resume_after_dataset}")
     summary = prepare_dataset(
         PreparationConfig(
             source_root=source_root,
@@ -191,6 +200,7 @@ def prepare_inventory(
             validation_source_splits=policy.validation_source_splits,
             max_train_records_per_dataset=max_train_records_per_dataset,
             max_validation_records_per_dataset=max_validation_records_per_dataset,
+            train_dataset_ids=train_dataset_ids,
         )
     )
     summary.update(
@@ -198,6 +208,7 @@ def prepare_inventory(
             "inventory_workbook": str(workbook_path.resolve()),
             "inventory_workbook_sha256": hashlib.sha256(workbook_path.read_bytes()).hexdigest(),
             "inventory_selected_datasets": len(policy.dataset_ids),
+            "resume_after_dataset": resume_after_dataset,
             "inventory_skipped": [
                 {"dataset_id": dataset_id, "reason": reason} for dataset_id, reason in policy.skipped
             ],
@@ -224,6 +235,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--max-train-records-per-dataset", type=_positive_int, default=10_000)
     parser.add_argument("--max-validation-records-per-dataset", type=_positive_int, default=1_000)
+    parser.add_argument("--resume-after-dataset")
     return parser
 
 
@@ -237,6 +249,7 @@ def main() -> int:
         args.output_dir,
         max_train_records_per_dataset=args.max_train_records_per_dataset,
         max_validation_records_per_dataset=args.max_validation_records_per_dataset,
+        resume_after_dataset=args.resume_after_dataset,
     )
     logger.info(
         "Prepared %d train and %d validation records from %d inventory datasets",

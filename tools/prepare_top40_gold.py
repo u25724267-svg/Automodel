@@ -148,6 +148,7 @@ class PreparationConfig:
     validation_source_splits: tuple[tuple[str, str | None], ...] = tuple(VALIDATION_SOURCE_SPLITS.items())
     max_train_records_per_dataset: int | None = None
     max_validation_records_per_dataset: int | None = None
+    train_dataset_ids: tuple[str, ...] | None = None
 
 
 @dataclass
@@ -516,6 +517,7 @@ def prepare_dataset(config: PreparationConfig, *, tokenizer: ChatTokenizer | Non
         validation_source_splits=config.validation_source_splits,
         max_train_records_per_dataset=config.max_train_records_per_dataset,
         max_validation_records_per_dataset=config.max_validation_records_per_dataset,
+        train_dataset_ids=config.train_dataset_ids,
     )
     _require_read_only_mount(config.source_root)
     if config.output_dir.exists() and any(config.output_dir.iterdir()):
@@ -525,6 +527,8 @@ def prepare_dataset(config: PreparationConfig, *, tokenizer: ChatTokenizer | Non
     dataset_tasks = dict(config.dataset_tasks)
     validation_source_splits = dict(config.validation_source_splits)
     unknown = set(config.dataset_ids) - set(dataset_tasks) | (set(config.dataset_ids) - set(validation_source_splits))
+    train_dataset_ids = config.train_dataset_ids or config.dataset_ids
+    unknown.update(set(train_dataset_ids) - set(config.dataset_ids))
     if unknown:
         raise ValueError(f"Unknown candidate dataset IDs: {sorted(unknown)}")
 
@@ -541,7 +545,7 @@ def prepare_dataset(config: PreparationConfig, *, tokenizer: ChatTokenizer | Non
     benchmark_blocklist = BenchmarkBlocklist(benchmark_path, mode="read-only")
     stats = PreparationStats()
     try:
-        for dataset_id in config.dataset_ids:
+        for dataset_id in train_dataset_ids:
             validation_source = validation_source_splits[dataset_id]
             if validation_source is None:
                 _process_source_split(
@@ -627,6 +631,7 @@ def prepare_dataset(config: PreparationConfig, *, tokenizer: ChatTokenizer | Non
         "approved_languages": sorted(config.approved_languages),
         "max_train_records_per_dataset": config.max_train_records_per_dataset,
         "max_validation_records_per_dataset": config.max_validation_records_per_dataset,
+        "train_dataset_ids": list(train_dataset_ids),
         "test_splits_materialized": False,
         "reserved_datasets_materialized": False,
         "missing_reserved_datasets_for_contamination_audit": missing_reserved_datasets,

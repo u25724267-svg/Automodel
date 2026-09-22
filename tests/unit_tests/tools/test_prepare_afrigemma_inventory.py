@@ -17,9 +17,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from openpyxl import Workbook
 
-from tools.prepare_afrigemma_inventory import load_inventory_policy
+from tools.prepare_afrigemma_inventory import load_inventory_policy, prepare_inventory
 
 
 def _manifest(root: Path, dataset_id: str, splits: tuple[str, ...]) -> None:
@@ -73,3 +74,22 @@ def test_load_inventory_policy_selects_enabled_train_sources_and_validation_spli
         "disabled": "disabled",
         "evaluation": "purpose:eval",
     }
+
+
+def test_prepare_inventory_rejects_unknown_resume_boundary(tmp_path: Path) -> None:
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "sft_datasets.csv"
+    worksheet.append(["Dataset ID", "Task", "Purpose", "Status Flag"])
+    worksheet.append(["train_only", "instruction", "train", True])
+    workbook_path = tmp_path / "inventory.xlsx"
+    workbook.save(workbook_path)
+    _manifest(tmp_path / "source", "train_only", ("train",))
+
+    with pytest.raises(ValueError, match="not selected"):
+        prepare_inventory(
+            workbook_path,
+            tmp_path / "source",
+            tmp_path / "output",
+            resume_after_dataset="missing",
+        )

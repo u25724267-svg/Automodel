@@ -199,3 +199,4 @@ training_logs/
 # Local materialization from the read-only AfriGemma GCS mount.
 /data/afrigemma-top40-gold-prepared/
 /data/afrigemma-inventory-prepared/
+/data/afrigemma-inventory-continuation/
