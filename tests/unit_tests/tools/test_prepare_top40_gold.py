@@ -20,13 +20,24 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from tools.prepare_top40_gold import PreparationConfig, prepare_dataset
+from tools.prepare_top40_gold import LEGACY_SYSTEM_PROMPT, PreparationConfig, prepare_dataset
+
+
+class _FakeTokenizer:
+    model_max_length = 4_096
+
+    def apply_chat_template(self, conversation, *, tokenize, add_generation_prompt):
+        assert tokenize is True
+        assert add_generation_prompt is False
+        text = "".join(message["content"] for message in conversation)
+        input_ids = list(range(5_000 if "overlength" in text else len(text.split()) + 4))
+        return {"input_ids": input_ids, "attention_mask": [1] * len(input_ids)}
 
 
 def _conversation(user: str, assistant: str) -> str:
     return json.dumps(
         [
-            {"role": "system", "content": "Answer helpfully."},
+            {"role": "system", "content": LEGACY_SYSTEM_PROMPT},
             {"role": "user", "content": user},
             {"role": "assistant", "content": assistant},
         ]
@@ -81,7 +92,8 @@ def test_prepare_dataset_preserves_validation_deduplicates_and_normalizes(tmp_pa
             validation_fraction=0.5,
             shard_size=1,
             dataset_ids=("afrisenti",),
-        )
+        ),
+        tokenizer=_FakeTokenizer(),
     )
 
     train = _read_manifest_records(output_dir, "train")
@@ -92,11 +104,111 @@ def test_prepare_dataset_preserves_validation_deduplicates_and_normalizes(tmp_pa
         {"role": "user", "content": "train"},
         {"role": "assistant", "content": "neutral"},
     ]
+    assert train[0]["lang"] == "amh"
+    assert train[0]["task"] == "classification"
+    assert train[0]["source"] == "afrisenti"
+    assert train[0]["source_split"] == "train"
+    assert 0 < train[0]["_text_tokens"] <= 4_096
     assert validation[0]["messages"][0]["content"] == "shared"
     assert all(record["messages"][0]["content"] != "test-only" for record in train + validation)
     assert summary["stats"]["duplicate_by_split"] == {"train": 1}
     assert summary["stats"]["bom_characters_removed"] == 1
     assert summary["test_splits_materialized"] is False
+
+
+def test_prepare_dataset_rejects_unapproved_languages_and_unexpected_system_prompts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    source_root = tmp_path / "source"
+    unexpected_system = json.dumps(
+        [
+            {"role": "system", "content": "A task-specific instruction that must not be discarded."},
+            {"role": "user", "content": "Prompt"},
+            {"role": "assistant", "content": "Answer"},
+        ]
+    )
+    _write_dataset(
+        source_root,
+        "afrisenti",
+        {
+            "train": [
+                {"messages": _conversation("approved", "positive"), "language": "swa", "task": "classification"},
+                {"messages": _conversation("unknown", "neutral"), "language": "unknown", "task": "classification"},
+                {"messages": unexpected_system, "language": "amh", "task": "classification"},
+                {"messages": _conversation("overlength", "neutral"), "language": "amh", "task": "classification"},
+            ],
+            "validation": [
+                {"messages": _conversation("validation", "positive"), "language": "amh", "task": "classification"}
+            ],
+        },
+    )
+    monkeypatch.setattr(os, "statvfs", lambda _: type("Stat", (), {"f_flag": os.ST_RDONLY})())
+
+    summary = prepare_dataset(
+        PreparationConfig(source_root=source_root, output_dir=tmp_path / "prepared", dataset_ids=("afrisenti",)),
+        tokenizer=_FakeTokenizer(),
+    )
+
+    train = _read_manifest_records(tmp_path / "prepared", "train")
+    assert len(train) == 1
+    assert train[0]["lang"] == "swh"
+    assert summary["stats"]["rejected_by_reason"] == {
+        "language_outside_report": 1,
+        "overlength_sequence": 1,
+        "unexpected_system_prompt": 1,
+    }
+
+
+def test_prepare_dataset_excludes_substantive_reserved_benchmark_overlap(tmp_path: Path, monkeypatch) -> None:
+    source_root = tmp_path / "source"
+    benchmark_text = (
+        "This benchmark passage contains enough distinct words to trigger the fragment overlap policy safely."
+    )
+    _write_dataset(
+        source_root,
+        "afrisenti",
+        {
+            "train": [
+                {
+                    "messages": _conversation(benchmark_text, "positive"),
+                    "language": "amh",
+                    "task": "classification",
+                },
+                {
+                    "messages": _conversation(
+                        "A unique training prompt with sufficient words for the test case.", "neutral"
+                    ),
+                    "language": "amh",
+                    "task": "classification",
+                },
+            ],
+            "validation": [
+                {
+                    "messages": _conversation(
+                        "A unique validation prompt with sufficient words for the test case.", "positive"
+                    ),
+                    "language": "amh",
+                    "task": "classification",
+                }
+            ],
+        },
+    )
+    _write_dataset(
+        source_root,
+        "afriqa",
+        {"test": [{"messages": _conversation(benchmark_text, "reserved answer")}]},
+    )
+    monkeypatch.setattr(os, "statvfs", lambda _: type("Stat", (), {"f_flag": os.ST_RDONLY})())
+
+    summary = prepare_dataset(
+        PreparationConfig(source_root=source_root, output_dir=tmp_path / "prepared", dataset_ids=("afrisenti",)),
+        tokenizer=_FakeTokenizer(),
+    )
+
+    train = _read_manifest_records(tmp_path / "prepared", "train")
+    assert len(train) == 1
+    assert train[0]["messages"][0]["content"].startswith("A unique training prompt")
+    assert summary["stats"]["contaminated_by_benchmark"] == {"afriqa:test": 1}
 
 
 def test_prepare_dataset_refuses_nonempty_output(tmp_path: Path, monkeypatch) -> None:
@@ -108,4 +220,7 @@ def test_prepare_dataset_refuses_nonempty_output(tmp_path: Path, monkeypatch) ->
     monkeypatch.setattr(os, "statvfs", lambda _: type("Stat", (), {"f_flag": os.ST_RDONLY})())
 
     with pytest.raises(FileExistsError, match="not empty"):
-        prepare_dataset(PreparationConfig(source_root=source_root, output_dir=output_dir, dataset_ids=("afrisenti",)))
+        prepare_dataset(
+            PreparationConfig(source_root=source_root, output_dir=output_dir, dataset_ids=("afrisenti",)),
+            tokenizer=_FakeTokenizer(),
+        )

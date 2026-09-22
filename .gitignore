@@ -195,3 +195,7 @@ docs/fern/product-docs/
 docs/fern/versions/v0.4/pages/
 
 training_logs/
+
+# Local materialization from the read-only AfriGemma GCS mount.
+/data/afrigemma-top40-gold-prepared/
+/data/afrigemma-inventory-prepared/
