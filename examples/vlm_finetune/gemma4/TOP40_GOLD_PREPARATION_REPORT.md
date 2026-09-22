@@ -10,8 +10,8 @@ materialized under
 `examples/vlm_finetune/gemma4/data/top40_gold_v1`. The materialized directory
 is intentionally ignored by Git.
 
-No training command has been run. Training remains blocked pending explicit
-user approval.
+The handoff's 20-step single-GPU LoRA qualification and step-25 resume gate
+completed successfully. No long LoRA run or full SFT has been started.
 
 ## Split policy
 
@@ -54,6 +54,34 @@ token counts present and valid user/assistant conversations. A real sample was
 processed by `Gemma4Processor` and `PreTokenizedDatasetWrapper`; its input,
 attention, and label tensors aligned, with assistant-only supervised tokens.
 
+## LoRA qualification
+
+Qualification used the complete 407,567-record training manifest and a bounded
+466-record Aya validation shard. The eventual long run must use the complete
+70,053-record validation manifest.
+
+The locked environment used PyTorch 2.10.0 with CUDA 13.0, Transformers 5.12.1,
+BF16, and one NVIDIA A100-SXM4-40GB GPU. The first attempt stopped before step 1
+because the configured fused loss dependency was absent; installing the locked
+`dev` dependency group supplied `cut-cross-entropy`. The preserved successful
+run is `qualification/qual-20-v2`.
+
+| Gate | Result |
+|---|---:|
+| Initial training steps | 0–19 |
+| Resume training steps | 20–24 |
+| Validation loss at step 9 | 3.7224 |
+| Validation loss at step 19 | 3.4122 |
+| Validation loss at step 24 | 3.3918 |
+| Peak allocated memory | 30.83 GiB |
+| Final training loss | 3.0008 |
+| Final gradient norm | 3.4187 |
+
+All recorded losses, perplexities, gradient norms, and learning rates were
+finite. Complete adapter, optimizer, RNG, scheduler, and dataloader checkpoints
+were written at zero-based steps 9, 19, and 24. The resume command loaded
+`epoch_0_step_19`, began at 20/25, and continued without restarting.
+
 ## Contamination audit
 
 The repository's pinned benchmark blocklist was built from AfriMMLU,
@@ -77,11 +105,13 @@ The versioned data directory contains:
 - `contamination_audit.json` and the pinned blocklist under `audit/`;
 - `readiness_report.json` with final counts, token totals, zero-match results,
   and SHA-256 hashes for every prepared shard and governing artifact.
+- `qualification/qual-20-v2/qualification_summary.json`, training and validation
+  logs, and adapter checkpoints for the completed qualification and resume gate.
 
 Licensing review was explicitly deferred for this preparation pass. It remains
 a release and usage gate, but it did not block local materialization.
 
-## Approval boundary
+## Next training boundary
 
 After approval, the prepared data can be selected by setting:
 
@@ -89,6 +119,7 @@ After approval, the prepared data can be selected by setting:
 export AFRIINSTRUCT_DATA_DIR="$PWD/examples/vlm_finetune/gemma4/data/top40_gold_v1"
 ```
 
-The first execution must be the handoff's 20-step single-GPU LoRA qualification
-using `gemma4_e2b_afriinstruct_peft.yaml`, followed by the step-25 resume check.
-Do not start full SFT before those gates pass.
+The handoff's qualification and resume gates have passed. A long, versioned
+LoRA run may now be configured, but it must use the complete validation manifest
+and preserve the qualified environment and data hashes. Full SFT remains
+blocked until a long LoRA run produces measurable held-out gains.
